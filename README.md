@@ -1,6 +1,8 @@
 <p align="center">
-  <img src="public/logo.png" alt="MangaMatch Logo" width="1000" />
+  <img src="public/logo.png" alt="MangaMatch Logo" width=500" />
 </p>
+
+##
 
 A personal manga tracking and AI-powered recommendation app. Search or browse manga, build a personal library of what you're reading (or want to read), organize it with custom categories, and get tailored recommendations from Gemini based on your genre preferences, reading history, and specific manga you already love.
 
