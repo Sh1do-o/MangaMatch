@@ -1,50 +1,60 @@
-// Helper functions for calling the Gemini API to generate manga recommendations.
+// Helper functions for calling the Gemini API to rank real manga
+// candidates (pulled from AniList) rather than inventing titles from
+// memory. This guarantees every recommendation is a real, currently
+// existing manga with accurate chapter counts/status, since that data
+// comes directly from AniList rather than the LLM's own (possibly
+// stale or wrong) recollection.
 
-export interface RecommendationFilters {
+export interface CandidateManga {
+  malId: number;
+  title: string;
   genres: string[];
-  completionStatus: string; // "any" | "ongoing" | "completed"
-  chapterLength: string; // "any" | "short" | "medium" | "long"
-  contentRating: string; // "any" | "safe" | "mature"
+  synopsis: string | null;
+  chapters: number | null;
+  status: string | null;
+  score: number | null;
+}
+
+export interface RankingFilters {
+  genres: string[];
+  completionStatus: string;
+  chapterLength: string;
   baseManga: {
     title: string;
     genres: string[];
     synopsis: string | null;
   }[];
   diverge: boolean; // if true, nudge results away from strict similarity
-  excludeTitles: string[]; // titles already suggested or marked "already read"
   customQuery: string; // free-text extra instructions from the user
 }
 
-export interface Recommendation {
-  title: string;
-  synopsis: string;
+export interface RankedPick {
+  index: number;
   reason: string;
-  malId?: number | null;
-  coverUrl?: string | null;
-  genres?: string[];
-  chapters?: number | null;
-  status?: string | null;
-  siteUrl?: string | null;
 }
 
-function buildPrompt(filters: RecommendationFilters): string {
+function buildPrompt(
+  candidates: CandidateManga[],
+  filters: RankingFilters
+): string {
   const parts: string[] = [];
 
   parts.push(
-    "You are a manga recommendation engine. Recommend 5 manga based on the following criteria."
+    "You are a manga recommendation engine. Below is a numbered list of REAL manga candidates. Your job is to pick the best 5 from THIS LIST ONLY, ranked best-first, based on quality and fit — do not invent or suggest anything not in this list."
   );
 
   if (filters.genres.length > 0) {
-    parts.push(`Genres: ${filters.genres.join(", ")}`);
+    parts.push(
+      `Preferred genres: ${filters.genres.join(", ")}. Favor candidates matching several of these, but don't treat this as a strict requirement — a great pick matching fewer genres is better than a mediocre pick matching all of them.`
+    );
   }
   if (filters.completionStatus !== "any") {
-    parts.push(`Completion status: ${filters.completionStatus}`);
+    parts.push(`Preferred completion status: ${filters.completionStatus}.`);
   }
   if (filters.chapterLength !== "any") {
-    parts.push(`Chapter length preference: ${filters.chapterLength}`);
-  }
-  if (filters.contentRating !== "any") {
-    parts.push(`Content rating: ${filters.contentRating}`);
+    parts.push(
+      `Preferred chapter length: ${filters.chapterLength}. Use the chapters count shown per candidate where available; if unknown, use your judgment.`
+    );
   }
 
   if (filters.baseManga.length > 0) {
@@ -59,18 +69,18 @@ function buildPrompt(filters: RecommendationFilters): string {
 
     parts.push(
       filters.baseManga.length === 1
-        ? `Base the recommendations primarily on similarity to this manga: ${baseDescriptions}.`
-        : `Base the recommendations on similarity to ALL of these manga collectively, finding common threads between them rather than matching just one: ${baseDescriptions}.`
+        ? `Prioritize similarity to this manga: ${baseDescriptions}.`
+        : `Prioritize similarity to ALL of these manga collectively, finding common threads rather than matching just one: ${baseDescriptions}.`
     );
   }
 
   parts.push(
-    "Favor manga that generally have mostly positive reader reviews and reception, rather than just matching genres alone."
+    "All else equal, favor candidates with a higher score (indicating positive reception)."
   );
 
   if (filters.diverge) {
     parts.push(
-      "Diverge somewhat from the exact filters and base manga above — suggest titles that are more loosely related, offering variety rather than close matches."
+      "Diverge somewhat from the closest matches — prefer picks that are more loosely related to the base manga/criteria, for variety rather than the most obvious picks."
     );
   }
 
@@ -78,31 +88,37 @@ function buildPrompt(filters: RecommendationFilters): string {
     parts.push(`Additional user instructions: ${filters.customQuery.trim()}`);
   }
 
-  if (filters.excludeTitles.length > 0) {
+  parts.push("\nCandidates:");
+  candidates.forEach((c, i) => {
     parts.push(
-      `Do NOT recommend these titles, they have already been suggested or read: ${filters.excludeTitles.join(", ")}.`
+      `${i}. "${c.title}" — genres: ${c.genres.join(", ")}; status: ${
+        c.status ?? "unknown"
+      }; chapters: ${c.chapters ?? "unknown"}; score: ${
+        c.score ?? "unknown"
+      }/10; synopsis: ${(c.synopsis ?? "").slice(0, 200)}`
     );
-  }
+  });
 
   parts.push(
-    "Respond ONLY with a JSON array, no other text, no markdown code fences. " +
-      'Each item must have this exact shape: { "title": string, "synopsis": string, "reason": string }. ' +
-      '"reason" should briefly explain why this manga was recommended given the criteria above. ' +
-      '"title" must be just the primary title as it would appear on AniList or MyAnimeList — do NOT include an alternate title or translation in parentheses.'
+    "\nRespond ONLY with a JSON array, no other text, no markdown code fences. " +
+      'Each item must have this exact shape: { "index": number, "reason": string }, where "index" is the candidate\'s number from the list above. ' +
+      '"reason" should briefly explain why this pick fits, referencing the base manga/criteria. ' +
+      "Return exactly 5 items, ranked best-first, using only indices from the list."
   );
 
   return parts.join("\n");
 }
 
-export async function getRecommendations(
-  filters: RecommendationFilters
-): Promise<Recommendation[]> {
+export async function rankCandidates(
+  candidates: CandidateManga[],
+  filters: RankingFilters
+): Promise<RankedPick[]> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not set in environment variables");
   }
 
-  const prompt = buildPrompt(filters);
+  const prompt = buildPrompt(candidates, filters);
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
@@ -128,11 +144,17 @@ export async function getRecommendations(
     throw new Error("Gemini returned no content");
   }
 
-  // Strip markdown code fences if Gemini added them despite instructions
   const cleaned = text.replace(/```json|```/g, "").trim();
 
   try {
-    return JSON.parse(cleaned);
+    const parsed: RankedPick[] = JSON.parse(cleaned);
+    // Guard against out-of-range or malformed indices
+    return parsed.filter(
+      (p) =>
+        typeof p.index === "number" &&
+        p.index >= 0 &&
+        p.index < candidates.length
+    );
   } catch {
     throw new Error("Failed to parse Gemini response as JSON");
   }

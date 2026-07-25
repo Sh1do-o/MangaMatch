@@ -162,12 +162,24 @@ async function fetchAniList(
 
     if (res.ok) {
       const json = await res.json();
+
+      // GraphQL APIs often return HTTP 200 even when the query itself
+      // is invalid — the real error lives in json.errors, not the
+      // HTTP status. Without this check, an invalid query silently
+      // returns an empty result instead of surfacing what broke.
+      if (json.errors) {
+        throw new Error(
+          `AniList GraphQL error: ${JSON.stringify(json.errors)}`
+        );
+      }
+
       return json.data?.Page?.media ?? [];
     }
 
     // Retry on rate limiting (429) or transient server errors
     const isTransient = [429, 500, 502, 503, 504].includes(res.status);
-    lastError = new Error(`AniList API error: ${res.status}`);
+    const errBody = await res.text().catch(() => "");
+    lastError = new Error(`AniList API error: ${res.status} — ${errBody}`);
 
     if (!isTransient || attempt === maxRetries) break;
 
@@ -200,4 +212,199 @@ export async function getBrowseManga(
     genre: genre && genre !== "All" ? genre : null,
   });
   return media.map(mapMediaToResult);
+}
+
+const MEDIA_RECOMMENDATIONS_QUERY = `
+query ($id: Int) {
+  Media(id: $id, type: MANGA) {
+    recommendations(sort: RATING_DESC, perPage: 10) {
+      nodes {
+        mediaRecommendation {
+          id
+          siteUrl
+          title { romaji english }
+          genres
+          coverImage { extraLarge large }
+          description(asHtml: false)
+          status
+          chapters
+          volumes
+          averageScore
+          startDate { year month day }
+          endDate { year month day }
+          staff(perPage: 5) {
+            edges { role node { name { full } } }
+          }
+        }
+      }
+    }
+  }
+}
+`;
+
+/**
+ * Fetches AniList's own community-submitted "if you liked this, try that"
+ * recommendations for a given manga (by its AniList id). This is a much
+ * stronger similarity signal than genre-matching alone, since it reflects
+ * real reader opinions about what's actually similar.
+ */
+export async function getMediaRecommendations(
+  malId: number
+): Promise<MangaResult[]> {
+  try {
+    const res = await fetch("https://graphql.anilist.co", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        query: MEDIA_RECOMMENDATIONS_QUERY,
+        variables: { id: malId },
+      }),
+    });
+
+    if (!res.ok) return [];
+    const json = await res.json();
+    if (json.errors) return [];
+
+    const nodes = json.data?.Media?.recommendations?.nodes ?? [];
+    return nodes
+      .map((n: any) => n.mediaRecommendation)
+      .filter(Boolean)
+      .map(mapMediaToResult);
+  } catch {
+    return [];
+  }
+}
+
+export interface CandidatePoolFilters {
+  genres: string[];
+  completionStatus: string; // "any" | "ongoing" | "completed"
+  chapterLength: string; // "any" | "short" | "medium" | "long"
+}
+
+function buildCandidateQuery(activeArgs: string[]): string {
+  return `
+query (${activeArgs.map((a) => `$${a}: ${ARG_TYPES[a]}`).join(", ")}) {
+  Page(perPage: 30) {
+    media(
+      type: MANGA
+      isAdult: false
+      ${activeArgs.map((a) => `${a}: $${a}`).join("\n      ")}
+    ) {
+      id
+      siteUrl
+      title { romaji english }
+      genres
+      coverImage { extraLarge large }
+      description(asHtml: false)
+      status
+      chapters
+      volumes
+      averageScore
+      startDate { year month day }
+      endDate { year month day }
+      staff(perPage: 5) {
+        edges { role node { name { full } } }
+      }
+    }
+  }
+}
+`;
+}
+
+const ARG_TYPES: Record<string, string> = {
+  genre_in: "[String]",
+  status_in: "[MediaStatus]",
+  chapters_greater: "Int",
+  chapters_lesser: "Int",
+  sort: "[MediaSort]",
+  startDate_greater: "FuzzyDateInt",
+};
+
+function chapterRange(chapterLength: string): { greater?: number; lesser?: number } {
+  switch (chapterLength) {
+    case "short":
+      return { lesser: 100 };
+    case "medium":
+      return { greater: 99, lesser: 401 };
+    case "long":
+      return { greater: 400 };
+    default:
+      return {};
+  }
+}
+
+function statusList(completionStatus: string): string[] | undefined {
+  if (completionStatus === "ongoing") return ["RELEASING", "HIATUS"];
+  if (completionStatus === "completed") return ["FINISHED"];
+  return undefined;
+}
+
+/**
+ * Builds a pool of real candidate manga matching the given filters,
+ * pulled directly from AniList (not generated from an LLM's memory).
+ * Merges a general popularity-sorted batch with a recency-biased batch
+ * so newer releases are guaranteed to be represented, since an LLM's
+ * own knowledge tends to skew toward older, more famous titles.
+ *
+ * Genre and chapter-length are intentionally NOT applied as hard
+ * server-side filters here:
+ * - genre_in requires ALL listed genres simultaneously, not any one —
+ *   with several genres selected this narrows the real pool to near
+ *   nothing. Genre is instead passed to the ranking step as a soft
+ *   preference.
+ * - chapters_lesser/greater exclude any manga with an unknown chapter
+ *   count (common for ongoing series), so applying it server-side can
+ *   wipe out an otherwise good, legitimate pool.
+ * Only completion status is applied as a hard filter here, since that
+ * field is reliably populated.
+ */
+export async function getCandidatePool(
+  filters: CandidatePoolFilters
+): Promise<MangaResult[]> {
+  const status = statusList(filters.completionStatus);
+
+  const currentYear = new Date().getFullYear();
+  const recentCutoff = (currentYear - 2) * 10000; // e.g. 2023 -> 20230000
+
+  function buildRequest(sort: string[], includeRecency: boolean) {
+    const activeArgs = ["sort"];
+    const vars: Record<string, unknown> = { sort };
+
+    if (status) {
+      activeArgs.push("status_in");
+      vars.status_in = status;
+    }
+    if (includeRecency) {
+      activeArgs.push("startDate_greater");
+      vars.startDate_greater = recentCutoff;
+    }
+
+    return { query: buildCandidateQuery(activeArgs), variables: vars };
+  }
+
+  const popularReq = buildRequest(["POPULARITY_DESC"], false);
+  const recentReq = buildRequest(["START_DATE_DESC"], true);
+
+  const [popular, recent] = await Promise.all([
+    fetchAniList(popularReq.query, popularReq.variables).catch((err) => {
+      console.error("AniList popular candidate query failed:", err);
+      return [];
+    }),
+    fetchAniList(recentReq.query, recentReq.variables).catch((err) => {
+      console.error("AniList recent candidate query failed:", err);
+      return [];
+    }),
+  ]);
+
+  const seen = new Set<number>();
+  const merged = [...recent, ...popular].filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+
+  return merged.map(mapMediaToResult);
 }
