@@ -2,7 +2,17 @@
 // DELETE /api/manga/[id]/categories  -> { categoryId } remove manga from category
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { serverError, type IdRouteContext } from "@/lib/api";
+import { HttpError, errorResponse, parseIdParam, parseJsonBody } from "@/lib/api";
+
+async function readCategoryId(req: Request): Promise<number> {
+  const body = await parseJsonBody(req);
+  const { categoryId } = (body ?? {}) as { categoryId?: unknown };
+
+  if (typeof categoryId !== "number" && typeof categoryId !== "string") {
+    throw new HttpError(400, "'categoryId' is required");
+  }
+  return parseIdParam(String(categoryId), "categoryId");
+}
 
 /** Connects or disconnects a category on a manga and returns the fresh row. */
 async function updateCategoryLink(
@@ -10,31 +20,44 @@ async function updateCategoryLink(
   params: IdRouteContext["params"],
   action: "connect" | "disconnect"
 ) {
-  const { id } = await params;
-  const { categoryId } = await req.json();
-
-  const link = { id: Number(categoryId) };
-
   try {
+    const { id } = await params;
+    const mangaId = parseIdParam(id);
+    const categoryId = await readCategoryId(req);
+
     const manga = await prisma.manga.update({
-      where: { id: Number(id) },
-      data: {
-        categories:
-          action === "connect" ? { connect: link } : { disconnect: link },
-      },
+      where: { id: mangaId },
+      data: { categories: { connect: { id: categoryId } } },
       include: { categories: true },
     });
     return NextResponse.json({ success: true, manga });
   } catch (err) {
-    const verb = action === "connect" ? "add" : "remove";
-    return serverError(err, `Failed to ${verb} category`);
+    return errorResponse(err, {
+      fallback: "Failed to add category",
+      notFound: "Manga or category not found",
+    });
   }
 }
 
-export function POST(req: Request, { params }: IdRouteContext) {
-  return updateCategoryLink(req, params, "connect");
-}
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const mangaId = parseIdParam(id);
+    const categoryId = await readCategoryId(req);
 
-export function DELETE(req: Request, { params }: IdRouteContext) {
-  return updateCategoryLink(req, params, "disconnect");
+    const manga = await prisma.manga.update({
+      where: { id: mangaId },
+      data: { categories: { disconnect: { id: categoryId } } },
+      include: { categories: true },
+    });
+    return NextResponse.json({ success: true, manga });
+  } catch (err) {
+    return errorResponse(err, {
+      fallback: "Failed to remove category",
+      notFound: "Manga or category not found",
+    });
+  }
 }

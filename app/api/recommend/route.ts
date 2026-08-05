@@ -15,33 +15,91 @@ import {
   type MangaResult,
 } from "@/lib/anilist";
 import { prisma } from "@/lib/db";
-import { serverError } from "@/lib/api";
-import { parseList } from "@/lib/manga";
-import { matchesChapterLength, matchesCompletionStatus } from "@/lib/filters";
+import { HttpError, errorResponse, parseJsonBody } from "@/lib/api";
+
+function asStringArray(value: unknown, field: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((v) => typeof v !== "string")) {
+    throw new HttpError(400, `'${field}' must be an array of strings`);
+  }
+  return value as string[];
+}
+
+function asIdArray(value: unknown, field: string): number[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new HttpError(400, `'${field}' must be an array of ids`);
+  }
+  return value.map((v) => {
+    const id = Number(v);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new HttpError(400, `'${field}' must contain positive integer ids`);
+    }
+    return id;
+  });
+}
+
+function matchesCompletionStatus(
+  status: string | null,
+  completionStatus: string
+): boolean {
+  if (completionStatus === "any" || !status) return true;
+  if (completionStatus === "completed") return status === "FINISHED";
+  if (completionStatus === "ongoing")
+    return status === "RELEASING" || status === "HIATUS";
+  return true;
+}
+
+function matchesChapterLength(
+  chapters: number | null,
+  chapterLength: string
+): boolean {
+  // Unknown chapter counts are treated as a pass, not a fail — AniList
+  // frequently doesn't track an exact count for ongoing series, and
+  // excluding those would wipe out otherwise perfectly good candidates.
+  if (chapterLength === "any" || chapters === null) return true;
+  if (chapterLength === "short") return chapters < 100;
+  if (chapterLength === "medium") return chapters >= 100 && chapters <= 400;
+  if (chapterLength === "long") return chapters > 400;
+  return true;
+}
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-
-  const {
-    genres = [],
-    completionStatus = "any",
-    chapterLength = "any",
-    contentRating = "any",
-    baseMangaIds = [],
-    diverge = false,
-    excludeTitles = [],
-    customQuery = "",
-    page = 1,
-  } = body;
-
   try {
+    const body = (await parseJsonBody(req)) as Record<string, unknown> | null;
+
+    const {
+      completionStatus = "any",
+      chapterLength = "any",
+      contentRating = "any",
+      diverge = false,
+      customQuery = "",
+    } = (body ?? {}) as {
+      completionStatus?: string;
+      chapterLength?: string;
+      contentRating?: string;
+      diverge?: boolean;
+      customQuery?: string;
+    };
+
+    const genres = asStringArray(body?.genres, "genres");
+    const excludeTitles = asStringArray(body?.excludeTitles, "excludeTitles");
+    const baseMangaIds = asIdArray(body?.baseMangaIds, "baseMangaIds");
+
     let baseManga: { title: string; genres: string[]; synopsis: string | null }[] = [];
     let baseMangaMalIds: number[] = [];
 
     if (baseMangaIds.length > 0) {
       const mangaList = await prisma.manga.findMany({
-        where: { id: { in: baseMangaIds.map(Number) } },
+        where: { id: { in: baseMangaIds } },
       });
+
+      if (mangaList.length === 0) {
+        throw new HttpError(
+          400,
+          "None of the selected base manga exist in your library"
+        );
+      }
       baseManga = mangaList.map((manga) => ({
         title: manga.title,
         genres: parseList(manga.genres),
@@ -55,7 +113,7 @@ export async function POST(req: NextRequest) {
       select: { title: true },
     });
     const excludeTitlesLower = new Set(
-      [...excludeTitles, ...libraryManga.map((m) => m.title)].map((t: string) =>
+      [...excludeTitles, ...libraryManga.map((m) => m.title)].map((t) =>
         t.toLowerCase()
       )
     );
@@ -156,6 +214,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ recommendations });
   } catch (err) {
-    return serverError(err, "Failed to generate recommendations", true);
+    return errorResponse(err, {
+      fallback: "Failed to generate recommendations",
+    });
   }
 }

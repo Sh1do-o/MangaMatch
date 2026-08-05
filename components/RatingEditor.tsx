@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { updateManga } from "@/lib/api-client";
-import { cn, pillClass, LABEL } from "@/lib/ui";
+import { errorMessage, requestJson } from "@/lib/http";
 
 export default function RatingEditor({
   mangaId,
@@ -15,17 +14,24 @@ export default function RatingEditor({
   const router = useRouter();
   const [rating, setRating] = useState<number | null>(currentRating);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function updateRating(value: number) {
     const newValue = value === rating ? null : value;
     setBusy(true);
     setRating(newValue);
+    setError(null);
 
     try {
-      await updateManga(mangaId, { rating: newValue });
+      await requestJson(`/api/manga/${mangaId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating: newValue }),
+      });
       router.refresh();
-    } catch {
+    } catch (err) {
       setRating(currentRating);
+      setError(`Couldn't save your rating: ${errorMessage(err)}`);
     } finally {
       setBusy(false);
     }
@@ -57,6 +63,11 @@ export default function RatingEditor({
           );
         })}
       </div>
+      {error && (
+        <p className="mt-2 text-xs text-[#E8A0A0]" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

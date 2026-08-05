@@ -179,20 +179,36 @@ async function postAniList<T>(
   variables: Record<string, unknown>
 ): Promise<AniListMedia[]> {
   const maxRetries = 3;
-  let lastError: Error | null = null;
+  let lastError: Error = new Error("AniList request was never attempted");
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const res = await fetch("https://graphql.anilist.co", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({ query, variables }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("https://graphql.anilist.co", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ query, variables }),
+      });
+    } catch (err) {
+      // A network-level failure (DNS, socket reset) is as transient as a
+      // 503, so retry it rather than aborting the whole request on the
+      // first blip.
+      lastError = new Error(
+        `AniList request failed: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err }
+      );
+      if (attempt === maxRetries) break;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 800));
+      continue;
+    }
 
     if (res.ok) {
-      const json = await res.json();
+      const json = await res.json().catch((err: unknown) => {
+        throw new Error("AniList returned a non-JSON response", { cause: err });
+      });
 
       // GraphQL APIs often return HTTP 200 even when the query itself
       // is invalid — the real error lives in json.errors, not the
@@ -261,6 +277,11 @@ export async function getBrowseManga(
  * recommendations for a given manga (by its AniList id). This is a much
  * stronger similarity signal than genre-matching alone, since it reflects
  * real reader opinions about what's actually similar.
+ *
+ * This is an optional enrichment on top of the main candidate pool, so a
+ * failure degrades to an empty list rather than failing the request — but
+ * it is always logged, since a silent empty list is indistinguishable from
+ * "this manga genuinely has no recommendations".
  */
 export async function getMediaRecommendations(
   malId: number
@@ -278,16 +299,33 @@ export async function getMediaRecommendations(
       }),
     });
 
-    if (!res.ok) return [];
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      console.warn(
+        `AniList recommendations for media ${malId} failed: ${res.status} — ${errBody}`
+      );
+      return [];
+    }
+
     const json = await res.json();
-    if (json.errors) return [];
+    if (json.errors) {
+      console.warn(
+        `AniList recommendations for media ${malId} returned GraphQL errors:`,
+        json.errors
+      );
+      return [];
+    }
 
     const nodes = json.data?.Media?.recommendations?.nodes ?? [];
     return (nodes as { mediaRecommendation: AniListMedia | null }[])
       .map((n) => n.mediaRecommendation)
       .filter((m): m is AniListMedia => Boolean(m))
       .map(mapMediaToResult);
-  } catch {
+  } catch (err) {
+    console.warn(
+      `AniList recommendations for media ${malId} threw:`,
+      err
+    );
     return [];
   }
 }
@@ -429,23 +467,46 @@ export async function getCandidatePool(
     return { query: buildCandidateQuery(activeArgs), variables: vars };
   }
 
-  const selections = filters.genres.slice(0, MAX_SELECTIONS_QUERIED);
-  const requests =
-    selections.length > 0
-      ? [
-          ...selections.map((s) => buildRequest(s, false)),
-          ...selections.slice(0, 2).map((s) => buildRequest(s, true)),
-        ]
-      : [buildRequest(null, false), buildRequest(null, true)];
+  const popularReq = buildRequest(["POPULARITY_DESC"], false);
+  const recentReq = buildRequest(["START_DATE_DESC"], true);
 
-  const batches = await Promise.all(
-    requests.map((req) =>
-      fetchAniList(req.query, req.variables).catch((err) => {
-        console.error("AniList candidate query failed:", err);
-        return [];
-      })
-    )
-  );
+  // One of the two batches failing still leaves a usable pool, so those are
+  // logged and tolerated. Both failing means AniList is unreachable — that
+  // must propagate, otherwise the caller sees an empty pool and reports it
+  // as "no manga matched your filters", hiding the outage.
+  const [popularResult, recentResult] = await Promise.allSettled([
+    fetchAniList(popularReq.query, popularReq.variables),
+    fetchAniList(recentReq.query, recentReq.variables),
+  ]);
+
+  if (popularResult.status === "rejected") {
+    console.error(
+      "AniList popular candidate query failed:",
+      popularResult.reason
+    );
+  }
+  if (recentResult.status === "rejected") {
+    console.error(
+      "AniList recent candidate query failed:",
+      recentResult.reason
+    );
+  }
+  if (
+    popularResult.status === "rejected" &&
+    recentResult.status === "rejected"
+  ) {
+    throw new Error(
+      `Could not fetch a candidate pool from AniList: ${
+        popularResult.reason instanceof Error
+          ? popularResult.reason.message
+          : String(popularResult.reason)
+      }`,
+      { cause: popularResult.reason }
+    );
+  }
+
+  const popular = popularResult.status === "fulfilled" ? popularResult.value : [];
+  const recent = recentResult.status === "fulfilled" ? recentResult.value : [];
 
   const seen = new Set<number>();
   const merged: MangaResult[] = [];

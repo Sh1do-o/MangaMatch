@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ANILIST_GENRES, isAniListGenre } from "@/lib/anilist";
+import { errorMessage, requestJson } from "@/lib/http";
 
 interface SavedManga {
   id: number;
@@ -86,9 +86,13 @@ export default function RecommendationsPage() {
   const [addingToLibrary, setAddingToLibrary] = useState(false);
 
   useEffect(() => {
-    fetchLibrary()
-      .then(setLibrary)
-      .catch(() => setLibrary([]));
+    // An unhandled rejection here used to leave the library silently empty,
+    // which reads as "you own nothing" rather than "we couldn't load it".
+    requestJson<{ manga?: SavedManga[] }>("/api/manga/list")
+      .then((data) => setLibrary(data.manga ?? []))
+      .catch((err) =>
+        setError(`Couldn't load your library: ${errorMessage(err)}`)
+      );
   }, []);
 
   // Library genres come from AniList's genre list, so only genre selections
@@ -121,39 +125,31 @@ export default function RecommendationsPage() {
     const page = fresh ? 1 : poolPage + 1;
 
     try {
-      const data = await fetchJson<{ recommendations: Recommendation[] }>(
+      const data = await requestJson<{ recommendations?: Recommendation[] }>(
         "/api/recommend",
-        jsonRequest("POST", {
-          genres: Array.from(selectedGenres),
-          completionStatus,
-          chapterLength,
-          contentRating,
-          baseMangaIds: Array.from(baseMangaIds),
-          diverge,
-          customQuery,
-          excludeTitles,
-          page,
-        }),
-      });
-      const data = await res.json();
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            genres: Array.from(selectedGenres),
+            completionStatus,
+            chapterLength,
+            contentRating,
+            baseMangaIds: Array.from(baseMangaIds),
+            diverge,
+            customQuery,
+            excludeTitles: [
+              ...Array.from(dismissed),
+              ...recommendations.map((r) => r.title),
+            ],
+          }),
+        }
+      );
 
-      if (!res.ok) {
-        throw new Error(data.details || data.error || "Request failed");
-      }
-
-      const batch: Recommendation[] = data.recommendations ?? [];
-      setRecommendations(batch);
-      setNote(data.note ?? null);
-      setPoolPage(page);
-      setSeenTitles((prev) => {
-        const next = fresh ? new Set<string>() : new Set(prev);
-        for (const rec of batch) next.add(rec.title);
-        return next;
-      });
-      if (fresh) setDismissed(new Set());
+      setRecommendations(data.recommendations ?? []);
       setStep("results");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(errorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -166,26 +162,36 @@ export default function RecommendationsPage() {
   async function confirmAddToLibrary() {
     if (!confirmingRec) return;
     setAddingToLibrary(true);
-
+    setError(null);
     try {
       if (confirmingRec.malId) {
-        await addMangaToLibrary({
-          malId: confirmingRec.malId,
-          title: confirmingRec.title,
-          genres: confirmingRec.genres ?? [],
-          coverUrl: confirmingRec.coverUrl ?? null,
-          synopsis: confirmingRec.synopsis,
-          status: confirmingRec.status ?? null,
-          authors: [],
-          publishedFrom: null,
-          publishedTo: null,
-          chapters: confirmingRec.chapters ?? null,
-          volumes: null,
-          score: null,
-          siteUrl: confirmingRec.siteUrl ?? null,
+        await requestJson("/api/manga/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            malId: confirmingRec.malId,
+            title: confirmingRec.title,
+            genres: confirmingRec.genres ?? [],
+            coverUrl: confirmingRec.coverUrl ?? null,
+            synopsis: confirmingRec.synopsis,
+            status: confirmingRec.status ?? null,
+            authors: [],
+            publishedFrom: null,
+            publishedTo: null,
+            chapters: confirmingRec.chapters ?? null,
+            volumes: null,
+            score: null,
+            siteUrl: confirmingRec.siteUrl ?? null,
+          }),
         });
       }
       dismissRecommendation(confirmingRec.title);
+    } catch (err) {
+      // The add used to be fire-and-forget: the recommendation was dismissed
+      // either way, so a failed save looked like a successful one.
+      setError(
+        `Couldn't add "${confirmingRec.title}" to your library: ${errorMessage(err)}`
+      );
     } finally {
       setAddingToLibrary(false);
       setConfirmingRec(null);
@@ -244,6 +250,18 @@ export default function RecommendationsPage() {
             </div>
           ))}
         </div>
+
+        {/* Errors are rendered outside the step blocks: a failed request
+            leaves you on the current step, so a results-only banner meant
+            the message was never seen. */}
+        {error && (
+          <div
+            className="mb-6 rounded-xl border border-[#4A2A2A] bg-[#1A0F0F] px-4 py-3 text-sm text-[#E8A0A0]"
+            role="alert"
+          >
+            {error}
+          </div>
+        )}
 
         {/* Step 1: Filters */}
         {step === "filters" && (
@@ -387,8 +405,6 @@ export default function RecommendationsPage() {
                   ` and ${Array.from(selectedGenres).join(", ")}`}
               </p>
             )}
-
-            {error && <ErrorBanner className="mb-6">{error}</ErrorBanner>}
 
             <div className="space-y-4">
               {recommendations.map((rec, i) => (

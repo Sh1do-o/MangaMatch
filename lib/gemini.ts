@@ -120,23 +120,35 @@ export async function rankCandidates(
 
   const prompt = buildPrompt(candidates, filters);
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-      }),
-    }
-  );
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
+      }
+    );
+  } catch (err) {
+    throw new Error(
+      `Could not reach the Gemini API: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+      { cause: err }
+    );
+  }
 
   if (!res.ok) {
     const errText = await res.text();
     throw new Error(`Gemini API error: ${res.status} ${errText}`);
   }
 
-  const data = await res.json();
+  const data = await res.json().catch((err: unknown) => {
+    throw new Error("Gemini returned a non-JSON response", { cause: err });
+  });
   const text: string | undefined =
     data.candidates?.[0]?.content?.parts?.[0]?.text;
 
@@ -149,24 +161,36 @@ export async function rankCandidates(
   let parsed: unknown;
   try {
     parsed = JSON.parse(cleaned);
-  } catch {
-    throw new Error("Failed to parse Gemini response as JSON");
+  } catch (err) {
+    // Keep the raw response on the error: without it there's no way to tell
+    // whether the model wrapped its answer in prose, refused, or truncated.
+    throw new Error(
+      `Failed to parse Gemini response as JSON: ${cleaned.slice(0, 300)}`,
+      { cause: err }
+    );
   }
 
   if (!Array.isArray(parsed)) {
-    throw new Error("Gemini response was not a JSON array of picks");
+    throw new Error(
+      `Gemini response was not a JSON array: ${cleaned.slice(0, 300)}`
+    );
   }
 
-  // Guard against malformed, out-of-range, and repeated indices — a repeated
-  // index would surface the same manga twice in the results.
-  const seen = new Set<number>();
-  return parsed.filter((p): p is RankedPick => {
-    if (!p || typeof p !== "object") return false;
-    const { index, reason } = p as Partial<RankedPick>;
-    if (!Number.isInteger(index) || typeof reason !== "string") return false;
-    const i = index as number;
-    if (i < 0 || i >= candidates.length || seen.has(i)) return false;
-    seen.add(i);
-    return true;
-  });
+  // Guard against out-of-range or malformed indices
+  const picks = parsed.filter(
+    (p): p is RankedPick =>
+      typeof p === "object" &&
+      p !== null &&
+      typeof (p as RankedPick).index === "number" &&
+      (p as RankedPick).index >= 0 &&
+      (p as RankedPick).index < candidates.length
+  );
+
+  if (picks.length === 0) {
+    throw new Error(
+      `Gemini returned no valid candidate indices (got ${parsed.length} item(s) for a pool of ${candidates.length})`
+    );
+  }
+
+  return picks;
 }

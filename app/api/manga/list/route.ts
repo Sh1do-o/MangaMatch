@@ -2,7 +2,7 @@
 // Returns all manga saved in the library, most recently added first.
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { serverError } from "@/lib/api";
+import { errorResponse } from "@/lib/api";
 
 export async function GET() {
   try {
@@ -12,6 +12,6 @@ export async function GET() {
     });
     return NextResponse.json({ manga });
   } catch (err) {
-    return serverError(err, "Failed to load library");
+    return errorResponse(err, { fallback: "Failed to load library" });
   }
 }

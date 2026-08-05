@@ -2,7 +2,7 @@
 // Returns manga from AniList sorted by trending/popularity/score, optionally filtered by genre.
 import { NextRequest, NextResponse } from "next/server";
 import { getBrowseManga, type BrowseSort } from "@/lib/anilist";
-import { badRequest, serverError } from "@/lib/api";
+import { errorResponse } from "@/lib/api";
 
 const VALID_SORTS: BrowseSort[] = ["trending", "popular", "top-rated"];
 
@@ -18,6 +18,6 @@ export async function GET(req: NextRequest) {
     const results = await getBrowseManga(sortParam as BrowseSort, genre);
     return NextResponse.json({ results });
   } catch (err) {
-    return serverError(err, "Failed to fetch manga", true);
+    return errorResponse(err, { fallback: "Failed to fetch manga" });
   }
 }

@@ -2,29 +2,30 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { deleteManga } from "@/lib/api-client";
-import { cn, BUTTON_DANGER } from "@/lib/ui";
+import { errorMessage, requestJson } from "@/lib/http";
 
 export default function DeleteMangaButton({ mangaId }: { mangaId: number }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleDelete() {
     setDeleting(true);
+    setError(null);
     try {
-      await deleteManga(mangaId);
+      await requestJson(`/api/manga/${mangaId}`, { method: "DELETE" });
       router.push("/library");
       router.refresh();
-    } catch {
+    } catch (err) {
       setDeleting(false);
-      setConfirming(false);
+      setError(`Couldn't remove this manga: ${errorMessage(err)}`);
     }
   }
 
   if (confirming) {
     return (
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <span className="text-xs text-[#8CA0BE]">Remove this manga?</span>
         <button
           onClick={handleDelete}
@@ -43,6 +44,11 @@ export default function DeleteMangaButton({ mangaId }: { mangaId: number }) {
         >
           Cancel
         </button>
+        {error && (
+          <p className="w-full text-xs text-[#E8A0A0]" role="alert">
+            {error}
+          </p>
+        )}
       </div>
     );
   }

@@ -2,14 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import TogglePill from "@/components/TogglePill";
-import {
-  createCategory,
-  fetchCategories,
-  setMangaCategory,
-} from "@/lib/api-client";
-import type { Category } from "@/lib/types";
-import { LABEL } from "@/lib/ui";
+import { errorMessage, requestJson } from "@/lib/http";
+
+interface Category {
+  id: number;
+  name: string;
+  color: string;
+}
 
 export default function CategoryManager({
   mangaId,
@@ -23,19 +22,36 @@ export default function CategoryManager({
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchCategories().then(setAllCategories).catch(() => setAllCategories([]));
+    requestJson<{ categories?: Category[] }>("/api/categories")
+      .then((data) => setAllCategories(data.categories ?? []))
+      .catch((err) =>
+        setError(`Couldn't load categories: ${errorMessage(err)}`)
+      );
   }, []);
 
   const assignedIds = new Set(assigned.map((c) => c.id));
 
   async function toggleCategory(category: Category) {
     setBusyId(category.id);
+    setError(null);
+    const isAssigned = assignedIds.has(category.id);
 
     try {
-      await setMangaCategory(mangaId, category.id, assignedIds.has(category.id));
+      // Previously the response was ignored entirely, so a failed
+      // add/remove still triggered a refresh and looked like a no-op.
+      await requestJson(`/api/manga/${mangaId}/categories`, {
+        method: isAssigned ? "DELETE" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categoryId: category.id }),
+      });
       router.refresh();
+    } catch (err) {
+      setError(
+        `Couldn't ${isAssigned ? "remove" : "add"} "${category.name}": ${errorMessage(err)}`
+      );
     } finally {
       setBusyId(null);
     }
@@ -45,13 +61,20 @@ export default function CategoryManager({
     e.preventDefault();
     if (!newName.trim()) return;
     setCreating(true);
+    setError(null);
 
     try {
-      const category = await createCategory(newName.trim());
-      setAllCategories((prev) => [...prev, category]);
+      // A duplicate name (409) used to be dropped on the floor here: the
+      // input just stayed put with no explanation.
+      const data = await requestJson<{ category: Category }>("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName.trim() }),
+      });
+      setAllCategories((prev) => [...prev, data.category]);
       setNewName("");
-    } catch {
-      // surfaced by the empty input staying filled — nothing else to do
+    } catch (err) {
+      setError(errorMessage(err));
     } finally {
       setCreating(false);
     }
@@ -98,6 +121,12 @@ export default function CategoryManager({
           + Add
         </button>
       </form>
+
+      {error && (
+        <p className="mt-2 text-xs text-[#E8A0A0]" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

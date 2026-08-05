@@ -2,25 +2,30 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import AmbientBackground from "@/components/AmbientBackground";
-import PageHeader from "@/components/PageHeader";
-import ErrorBanner from "@/components/ErrorBanner";
-import EmptyState from "@/components/EmptyState";
-import Modal from "@/components/Modal";
-import CoverImage from "@/components/CoverImage";
-import Chip from "@/components/Chip";
-import TogglePill from "@/components/TogglePill";
-import MangaCardSkeletons from "@/components/MangaCardSkeletons";
-import ResultsHeader from "@/components/ResultsHeader";
-import {
-  deleteCategory,
-  deleteManga,
-  fetchCategories,
-  fetchLibrary,
-} from "@/lib/api-client";
-import { parseList } from "@/lib/manga";
-import type { Category, SavedManga } from "@/lib/types";
-import { cn, BUTTON_DANGER, BUTTON_PRIMARY, BUTTON_SECONDARY, LABEL } from "@/lib/ui";
+import { errorMessage, requestJson } from "@/lib/http";
+
+interface Category {
+  id: number;
+  name: string;
+  color: string;
+}
+
+interface SavedManga {
+  id: number;
+  malId: number;
+  title: string;
+  genres: string;
+  coverUrl: string | null;
+  synopsis: string | null;
+  publicationStatus: string | null;
+  readingStatus: string;
+  rating: number | null;
+  createdAt: string;
+  updatedAt: string;
+  publishedFrom: string | null;
+  categories: Category[];
+  siteUrl: string | null;
+}
 
 type SortOption =
   | "recently-added"
@@ -60,10 +65,10 @@ export default function LibraryPage() {
 
     setDeletingId(id);
     try {
-      await deleteManga(id);
+      await requestJson(`/api/manga/${id}`, { method: "DELETE" });
       setManga((prev) => prev.filter((m) => m.id !== id));
-    } catch {
-      alert("Failed to delete. Try again.");
+    } catch (err) {
+      alert(`Failed to delete: ${errorMessage(err)}`);
     } finally {
       setDeletingId(null);
     }
@@ -72,9 +77,12 @@ export default function LibraryPage() {
   useEffect(() => {
     async function loadLibrary() {
       try {
-        setManga(await fetchLibrary());
+        const data = await requestJson<{ manga?: SavedManga[] }>(
+          "/api/manga/list"
+        );
+        setManga(data.manga ?? []);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Something went wrong");
+        setError(errorMessage(err));
       } finally {
         setLoading(false);
       }
@@ -85,9 +93,14 @@ export default function LibraryPage() {
 
   async function loadCategories() {
     try {
-      setAllCategoryObjs(await fetchCategories());
-    } catch {
-      // non-critical, category chips on cards still work without this
+      const data = await requestJson<{ categories?: Category[] }>(
+        "/api/categories"
+      );
+      setAllCategoryObjs(data.categories ?? []);
+    } catch (err) {
+      // Non-critical — category chips on cards still work without this list,
+      // so this doesn't block the page, but it is logged rather than dropped.
+      console.error("Failed to load categories:", err);
     }
   }
 
@@ -96,7 +109,7 @@ export default function LibraryPage() {
 
     setDeletingCategoryId(id);
     try {
-      await deleteCategory(id);
+      await requestJson(`/api/categories/${id}`, { method: "DELETE" });
       setAllCategoryObjs((prev) => prev.filter((c) => c.id !== id));
       setManga((prev) =>
         prev.map((m) => ({
@@ -107,8 +120,8 @@ export default function LibraryPage() {
       if (categoryFilter === allCategoryObjs.find((c) => c.id === id)?.name) {
         setCategoryFilter("All");
       }
-    } catch {
-      alert("Failed to delete category. Try again.");
+    } catch (err) {
+      alert(`Failed to delete category: ${errorMessage(err)}`);
     } finally {
       setDeletingCategoryId(null);
     }

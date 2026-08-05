@@ -1,31 +1,46 @@
-// Browser-side fetch helpers. Every client call to this app's API expects
-// JSON back and reports failures from the same `{ error, details }` shape.
+// Client-side fetch helper.
+//
+// Every call site used to hand-roll this, and most of them did it by
+// throwing an empty `new Error()` on a non-2xx response — which discarded
+// the message the API had just gone to the trouble of returning. This keeps
+// the server's message intact so the UI can actually show what went wrong.
 
-/** RequestInit for a JSON body request (POST/PATCH/DELETE with a payload). */
-export function jsonRequest(method: string, body: unknown): RequestInit {
-  return {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  };
-}
-
-/**
- * Fetches JSON, throwing an Error carrying the API's own message when the
- * response is not ok.
- */
-export async function fetchJson<T>(
-  url: string,
+export async function requestJson<T>(
+  input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<T> {
-  const res = await fetch(url, init);
-  const data = await res.json().catch(() => null);
+  let res: Response;
+  try {
+    res = await fetch(input, init);
+  } catch {
+    throw new Error("Network error — check your connection and try again.");
+  }
+
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    // Body wasn't JSON (e.g. an HTML error page); handled below.
+  }
 
   if (!res.ok) {
-    const message =
-      (data && (data.details || data.error)) || `Request failed (${res.status})`;
-    throw new Error(message);
+    const payload = data as { error?: string; details?: string } | null;
+    const summary = payload?.error ?? `Request failed (${res.status})`;
+    // `details` carries the underlying cause (an AniList/Gemini failure, a
+    // database error) — worth showing, since "Failed to generate
+    // recommendations" alone tells the user nothing actionable.
+    throw new Error(
+      payload?.details ? `${summary} — ${payload.details}` : summary
+    );
+  }
+
+  if (data === null) {
+    throw new Error("The server returned an unexpected (non-JSON) response.");
   }
 
   return data as T;
+}
+
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : "Something went wrong";
 }
