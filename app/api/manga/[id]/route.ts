@@ -24,7 +24,7 @@ export async function PATCH(
 
   const { readingStatus, rating } = body;
 
-  const data: { readingStatus?: string; rating?: number | null } = {};
+    const data: { readingStatus?: string; rating?: number | null } = {};
 
   if (readingStatus !== undefined) {
     if (typeof readingStatus !== "string" || !VALID_STATUSES.includes(readingStatus)) {
@@ -33,31 +33,34 @@ export async function PATCH(
         { status: 400 }
       );
     }
-    data.readingStatus = readingStatus;
-  }
 
-  if (rating !== undefined) {
-    if (rating !== null && (typeof rating !== "number" || rating < 1 || rating > 10)) {
-      return NextResponse.json(
-        { error: "rating must be a number between 1 and 10, or null" },
-        { status: 400 }
-      );
+    if (rating !== undefined) {
+      if (
+        rating !== null &&
+        (typeof rating !== "number" || rating < 1 || rating > 10)
+      ) {
+        throw new HttpError(
+          400,
+          "rating must be a number between 1 and 10, or null"
+        );
+      }
+      data.rating = rating;
     }
-    data.rating = rating;
-  }
 
-  try {
+    if (Object.keys(data).length === 0) {
+      throw new HttpError(400, "Nothing to update: provide readingStatus and/or rating");
+    }
+
     const manga = await prisma.manga.update({
       where: { id: mangaId },
       data,
     });
     return NextResponse.json({ success: true, manga });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json(
-      { error: "Failed to update manga" },
-      { status: 500 }
-    );
+    return errorResponse(err, {
+      fallback: "Failed to update manga",
+      notFound: "Manga not found",
+    });
   }
 }
 
@@ -76,10 +79,9 @@ export async function DELETE(
     await prisma.manga.delete({ where: { id: mangaId } });
     return NextResponse.json({ success: true });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json(
-      { error: "Failed to delete manga" },
-      { status: 500 }
-    );
+    return errorResponse(err, {
+      fallback: "Failed to delete manga",
+      notFound: "Manga not found",
+    });
   }
 }

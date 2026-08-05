@@ -15,11 +15,7 @@ export async function GET() {
     });
     return NextResponse.json({ categories });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json(
-      { error: "Failed to load categories" },
-      { status: 500 }
-    );
+    return errorResponse(err, { fallback: "Failed to load categories" });
   }
 }
 
@@ -45,7 +41,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  try {
     const category = await prisma.category.create({
       data: { name, color },
     });

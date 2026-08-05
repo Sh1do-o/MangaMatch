@@ -45,7 +45,7 @@ function buildPrompt(
 
   if (filters.genres.length > 0) {
     parts.push(
-      `Preferred genres: ${filters.genres.join(", ")}. Favor candidates matching several of these, but don't treat this as a strict requirement — a great pick matching fewer genres is better than a mediocre pick matching all of them.`
+      `Preferred genres/themes: ${filters.genres.join(", ")}. Every candidate below already matches at least one of these (some are AniList themes rather than genres, so they won't always appear in a candidate's listed genres). Favor candidates matching several of them, but don't treat that as a strict requirement — a great pick matching fewer is better than a mediocre pick matching all of them.`
     );
   }
   if (filters.completionStatus !== "any") {
@@ -142,7 +142,9 @@ export async function rankCandidates(
     throw new Error(`Gemini API error: ${res.status}`);
   }
 
-  const data = await res.json();
+  const data = await res.json().catch((err: unknown) => {
+    throw new Error("Gemini returned a non-JSON response", { cause: err });
+  });
   const text: string | undefined =
     data.candidates?.[0]?.content?.parts?.[0]?.text;
 
@@ -152,16 +154,39 @@ export async function rankCandidates(
 
   const cleaned = text.replace(/```json|```/g, "").trim();
 
+  let parsed: unknown;
   try {
-    const parsed: RankedPick[] = JSON.parse(cleaned);
-    // Guard against out-of-range or malformed indices
-    return parsed.filter(
-      (p) =>
-        typeof p.index === "number" &&
-        p.index >= 0 &&
-        p.index < candidates.length
+    parsed = JSON.parse(cleaned);
+  } catch (err) {
+    // Keep the raw response on the error: without it there's no way to tell
+    // whether the model wrapped its answer in prose, refused, or truncated.
+    throw new Error(
+      `Failed to parse Gemini response as JSON: ${cleaned.slice(0, 300)}`,
+      { cause: err }
     );
-  } catch {
-    throw new Error("Failed to parse Gemini response as JSON");
   }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error(
+      `Gemini response was not a JSON array: ${cleaned.slice(0, 300)}`
+    );
+  }
+
+  // Guard against out-of-range or malformed indices
+  const picks = parsed.filter(
+    (p): p is RankedPick =>
+      typeof p === "object" &&
+      p !== null &&
+      typeof (p as RankedPick).index === "number" &&
+      (p as RankedPick).index >= 0 &&
+      (p as RankedPick).index < candidates.length
+  );
+
+  if (picks.length === 0) {
+    throw new Error(
+      `Gemini returned no valid candidate indices (got ${parsed.length} item(s) for a pool of ${candidates.length})`
+    );
+  }
+
+  return picks;
 }

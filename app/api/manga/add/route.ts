@@ -32,7 +32,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  try {
     const manga = await prisma.manga.upsert({
       where: { malId },
       update: {}, // if it already exists, do nothing — just confirm success
@@ -56,10 +55,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, manga });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json(
-      { error: "Failed to save manga to library" },
-      { status: 500 }
-    );
+    return errorResponse(err, {
+      fallback: "Failed to save manga to library",
+    });
   }
 }

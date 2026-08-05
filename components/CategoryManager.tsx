@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { errorMessage, requestJson } from "@/lib/http";
 
 interface Category {
   id: number;
@@ -21,47 +22,59 @@ export default function CategoryManager({
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/categories")
-      .then((r) => r.json())
-      .then((data) => setAllCategories(data.categories ?? []));
+    requestJson<{ categories?: Category[] }>("/api/categories")
+      .then((data) => setAllCategories(data.categories ?? []))
+      .catch((err) =>
+        setError(`Couldn't load categories: ${errorMessage(err)}`)
+      );
   }, []);
 
   const assignedIds = new Set(assigned.map((c) => c.id));
 
   async function toggleCategory(category: Category) {
     setBusyId(category.id);
+    setError(null);
     const isAssigned = assignedIds.has(category.id);
 
     try {
-      await fetch(`/api/manga/${mangaId}/categories`, {
+      // Previously the response was ignored entirely, so a failed
+      // add/remove still triggered a refresh and looked like a no-op.
+      await requestJson(`/api/manga/${mangaId}/categories`, {
         method: isAssigned ? "DELETE" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ categoryId: category.id }),
       });
       router.refresh();
+    } catch (err) {
+      setError(
+        `Couldn't ${isAssigned ? "remove" : "add"} "${category.name}": ${errorMessage(err)}`
+      );
     } finally {
       setBusyId(null);
     }
   }
 
-  async function createCategory(e: React.FormEvent) {
+  async function handleCreateCategory(e: React.FormEvent) {
     e.preventDefault();
     if (!newName.trim()) return;
     setCreating(true);
+    setError(null);
 
     try {
-      const res = await fetch("/api/categories", {
+      // A duplicate name (409) used to be dropped on the floor here: the
+      // input just stayed put with no explanation.
+      const data = await requestJson<{ category: Category }>("/api/categories", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newName.trim() }),
       });
-      const data = await res.json();
-      if (res.ok) {
-        setAllCategories((prev) => [...prev, data.category]);
-        setNewName("");
-      }
+      setAllCategories((prev) => [...prev, data.category]);
+      setNewName("");
+    } catch (err) {
+      setError(errorMessage(err));
     } finally {
       setCreating(false);
     }
@@ -69,29 +82,21 @@ export default function CategoryManager({
 
   return (
     <div>
-      <p className="mb-2 font-mono text-[10px] uppercase tracking-wide text-[#8CA0BE]">
-        Categories
-      </p>
+      <p className={`mb-2 ${LABEL}`}>Categories</p>
 
       {/* Category pills */}
       <div className="mb-3 flex flex-wrap gap-1.5">
-        {allCategories.map((cat) => {
-          const isAssigned = assignedIds.has(cat.id);
-          return (
-            <button
-              key={cat.id}
-              onClick={() => toggleCategory(cat)}
-              disabled={busyId === cat.id}
-              className={`rounded-full border px-3 py-1 font-mono text-[10px] uppercase tracking-wide transition-all duration-200 disabled:opacity-50 ${
-                isAssigned
-                  ? "border-[#F5F5F0] bg-[#F5F5F0] text-[#0B1220]"
-                  : "border-[#1E2C42] text-[#8CA0BE] hover:border-[#F5F5F0]/40 hover:text-[#F5F5F0]"
-              }`}
-            >
-              {cat.name}
-            </button>
-          );
-        })}
+        {allCategories.map((cat) => (
+          <TogglePill
+            key={cat.id}
+            active={assignedIds.has(cat.id)}
+            onClick={() => toggleCategory(cat)}
+            disabled={busyId === cat.id}
+            className="px-3 py-1 text-[10px]"
+          >
+            {cat.name}
+          </TogglePill>
+        ))}
         {allCategories.length === 0 && (
           <p className="text-xs text-[#8CA0BE]">
             No categories yet — create one below.
@@ -100,7 +105,7 @@ export default function CategoryManager({
       </div>
 
       {/* Add category form */}
-      <form onSubmit={createCategory} className="flex gap-2">
+      <form onSubmit={handleCreateCategory} className="flex gap-2">
         <input
           type="text"
           value={newName}
@@ -116,6 +121,12 @@ export default function CategoryManager({
           + Add
         </button>
       </form>
+
+      {error && (
+        <p className="mt-2 text-xs text-[#E8A0A0]" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

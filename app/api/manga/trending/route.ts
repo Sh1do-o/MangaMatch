@@ -2,6 +2,7 @@
 // Returns manga from AniList sorted by trending/popularity/score, optionally filtered by genre.
 import { NextRequest, NextResponse } from "next/server";
 import { getBrowseManga, type BrowseSort } from "@/lib/anilist";
+import { errorResponse } from "@/lib/api";
 
 const VALID_SORTS: BrowseSort[] = ["trending", "popular", "top-rated"];
 
@@ -17,10 +18,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (!VALID_SORTS.includes(sortParam as BrowseSort)) {
-    return NextResponse.json(
-      { error: `sort must be one of: ${VALID_SORTS.join(", ")}` },
-      { status: 400 }
-    );
+    return badRequest(`sort must be one of: ${VALID_SORTS.join(", ")}`);
   }
 
   try {
