@@ -1,6 +1,7 @@
 // Helper functions for calling the AniList GraphQL API.
 // Docs: https://docs.anilist.co/
 // Official first-party API for AniList.co — no auth needed for public search.
+import { anilistStatusList } from "@/lib/filters";
 
 export interface MangaResult {
   malId: number; // AniList's own numeric ID (field name kept for compatibility)
@@ -18,46 +19,56 @@ export interface MangaResult {
   siteUrl: string | null; // link to the full AniList page
 }
 
+interface AniListDate {
+  year: number | null;
+  month: number | null;
+  day: number | null;
+}
+
+/** The `Media` selection shared by every query below. */
+interface AniListMedia {
+  id: number;
+  siteUrl: string | null;
+  title: { romaji: string | null; english: string | null };
+  genres: string[] | null;
+  coverImage: { extraLarge: string | null; large: string | null } | null;
+  description: string | null;
+  status: string | null;
+  chapters: number | null;
+  volumes: number | null;
+  averageScore: number | null;
+  startDate: AniListDate | null;
+  endDate: AniListDate | null;
+  staff: {
+    edges: { role: string; node: { name: { full: string } } }[];
+  } | null;
+}
+
+// Every query selects exactly the fields `mapMediaToResult` reads, so the
+// selection set is declared once and spliced into each query.
+const MEDIA_FIELDS = `
+  id
+  siteUrl
+  title { romaji english }
+  genres
+  coverImage { extraLarge large }
+  description(asHtml: false)
+  status
+  chapters
+  volumes
+  averageScore
+  startDate { year month day }
+  endDate { year month day }
+  staff(perPage: 5) {
+    edges { role node { name { full } } }
+  }
+`;
+
 const SEARCH_QUERY = `
 query ($search: String) {
   Page(perPage: 10) {
     media(search: $search, type: MANGA, sort: SEARCH_MATCH) {
-      id
-      siteUrl
-      title {
-        romaji
-        english
-      }
-      genres
-      coverImage {
-        extraLarge
-        large
-      }
-      description(asHtml: false)
-      status
-      chapters
-      volumes
-      averageScore
-      startDate {
-        year
-        month
-        day
-      }
-      endDate {
-        year
-        month
-        day
-      }
-      staff(perPage: 5) {
-        edges {
-          role
-          node {
-            name {
-              full
-            }
-          }
-        }
-      }
+      ${MEDIA_FIELDS}
     }
   }
 }
@@ -67,40 +78,19 @@ const BROWSE_QUERY = `
 query ($sort: [MediaSort], $genre: String) {
   Page(perPage: 10) {
     media(type: MANGA, sort: $sort, genre: $genre, isAdult: false) {
-      id
-      siteUrl
-      title {
-        romaji
-        english
-      }
-      genres
-      coverImage {
-        extraLarge
-        large
-      }
-      description(asHtml: false)
-      status
-      chapters
-      volumes
-      averageScore
-      startDate {
-        year
-        month
-        day
-      }
-      endDate {
-        year
-        month
-        day
-      }
-      staff(perPage: 5) {
-        edges {
-          role
-          node {
-            name {
-              full
-            }
-          }
+      ${MEDIA_FIELDS}
+    }
+  }
+}
+`;
+
+const MEDIA_RECOMMENDATIONS_QUERY = `
+query ($id: Int) {
+  Media(id: $id, type: MANGA) {
+    recommendations(sort: RATING_DESC, perPage: 10) {
+      nodes {
+        mediaRecommendation {
+          ${MEDIA_FIELDS}
         }
       }
     }
@@ -180,7 +170,11 @@ function mapMediaToResult(item: AniListMedia): MangaResult {
   };
 }
 
-async function fetchAniList(
+/**
+ * Posts a query to AniList and returns its `data` payload, retrying
+ * transient failures.
+ */
+async function postAniList<T>(
   query: string,
   variables: Record<string, unknown>
 ): Promise<AniListMedia[]> {
@@ -210,7 +204,7 @@ async function fetchAniList(
         );
       }
 
-      return json.data?.Page?.media ?? [];
+      return json.data as T;
     }
 
     // Retry on rate limiting (429) or transient server errors
@@ -224,6 +218,17 @@ async function fetchAniList(
   }
 
   throw lastError;
+}
+
+async function fetchAniList(
+  query: string,
+  variables: Record<string, unknown>
+): Promise<AniListMedia[]> {
+  const data = await postAniList<{ Page?: { media: AniListMedia[] } }>(
+    query,
+    variables
+  );
+  return data?.Page?.media ?? [];
 }
 
 export async function searchManga(query: string): Promise<MangaResult[]> {
@@ -250,34 +255,6 @@ export async function getBrowseManga(
   });
   return media.map(mapMediaToResult);
 }
-
-const MEDIA_RECOMMENDATIONS_QUERY = `
-query ($id: Int) {
-  Media(id: $id, type: MANGA) {
-    recommendations(sort: RATING_DESC, perPage: 10) {
-      nodes {
-        mediaRecommendation {
-          id
-          siteUrl
-          title { romaji english }
-          genres
-          coverImage { extraLarge large }
-          description(asHtml: false)
-          status
-          chapters
-          volumes
-          averageScore
-          startDate { year month day }
-          endDate { year month day }
-          staff(perPage: 5) {
-            edges { role node { name { full } } }
-          }
-        }
-      }
-    }
-  }
-}
-`;
 
 /**
  * Fetches AniList's own community-submitted "if you liked this, try that"
@@ -356,6 +333,15 @@ export function isAniListGenre(value: string): boolean {
   return ANILIST_GENRE_SET.has(value);
 }
 
+const ARG_TYPES: Record<string, string> = {
+  genre_in: "[String]",
+  status_in: "[MediaStatus]",
+  chapters_greater: "Int",
+  chapters_lesser: "Int",
+  sort: "[MediaSort]",
+  startDate_greater: "FuzzyDateInt",
+};
+
 function buildCandidateQuery(activeArgs: string[]): string {
   return `
 query ($page: Int, ${activeArgs.map((a) => `$${a}: ${ARG_TYPES[a]}`).join(", ")}) {
@@ -365,21 +351,7 @@ query ($page: Int, ${activeArgs.map((a) => `$${a}: ${ARG_TYPES[a]}`).join(", ")}
       isAdult: false
       ${activeArgs.map((a) => `${a}: $${a}`).join("\n      ")}
     ) {
-      id
-      siteUrl
-      title { romaji english }
-      genres
-      coverImage { extraLarge large }
-      description(asHtml: false)
-      status
-      chapters
-      volumes
-      averageScore
-      startDate { year month day }
-      endDate { year month day }
-      staff(perPage: 5) {
-        edges { role node { name { full } } }
-      }
+      ${MEDIA_FIELDS}
     }
   }
 }

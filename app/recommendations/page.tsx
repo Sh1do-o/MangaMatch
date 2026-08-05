@@ -86,9 +86,9 @@ export default function RecommendationsPage() {
   const [addingToLibrary, setAddingToLibrary] = useState(false);
 
   useEffect(() => {
-    fetch("/api/manga/list")
-      .then((r) => r.json())
-      .then((data) => setLibrary(data.manga ?? []));
+    fetchLibrary()
+      .then(setLibrary)
+      .catch(() => setLibrary([]));
   }, []);
 
   // Library genres come from AniList's genre list, so only genre selections
@@ -103,19 +103,11 @@ export default function RecommendationsPage() {
         );
 
   function toggleGenre(genre: string) {
-    setSelectedGenres((prev) => {
-      const next = new Set(prev);
-      next.has(genre) ? next.delete(genre) : next.add(genre);
-      return next;
-    });
+    setSelectedGenres((prev) => toggleSetItem(prev, genre));
   }
 
   function toggleBaseManga(id: number) {
-    setBaseMangaIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+    setBaseMangaIds((prev) => toggleSetItem(prev, id));
   }
 
   async function fetchRecommendations(diverge = false, fresh = false) {
@@ -129,10 +121,9 @@ export default function RecommendationsPage() {
     const page = fresh ? 1 : poolPage + 1;
 
     try {
-      const res = await fetch("/api/recommend", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const data = await fetchJson<{ recommendations: Recommendation[] }>(
+        "/api/recommend",
+        jsonRequest("POST", {
           genres: Array.from(selectedGenres),
           completionStatus,
           chapterLength,
@@ -178,24 +169,20 @@ export default function RecommendationsPage() {
 
     try {
       if (confirmingRec.malId) {
-        await fetch("/api/manga/add", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            malId: confirmingRec.malId,
-            title: confirmingRec.title,
-            genres: confirmingRec.genres ?? [],
-            coverUrl: confirmingRec.coverUrl ?? null,
-            synopsis: confirmingRec.synopsis,
-            status: confirmingRec.status ?? null,
-            authors: [],
-            publishedFrom: null,
-            publishedTo: null,
-            chapters: confirmingRec.chapters ?? null,
-            volumes: null,
-            score: null,
-            siteUrl: confirmingRec.siteUrl ?? null,
-          }),
+        await addMangaToLibrary({
+          malId: confirmingRec.malId,
+          title: confirmingRec.title,
+          genres: confirmingRec.genres ?? [],
+          coverUrl: confirmingRec.coverUrl ?? null,
+          synopsis: confirmingRec.synopsis,
+          status: confirmingRec.status ?? null,
+          authors: [],
+          publishedFrom: null,
+          publishedTo: null,
+          chapters: confirmingRec.chapters ?? null,
+          volumes: null,
+          score: null,
+          siteUrl: confirmingRec.siteUrl ?? null,
         });
       }
       dismissRecommendation(confirmingRec.title);
@@ -220,29 +207,18 @@ export default function RecommendationsPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#0B1220] text-[#F5F5F0]">
-      {/* Ambient background blobs */}
-      <div className="pointer-events-none fixed inset-0 -z-10">
-        <div className="animate-drift absolute -top-24 right-1/4 h-[500px] w-[500px] rounded-full bg-[#E8C77E]/5 blur-[130px]" />
-        <div className="animate-drift absolute bottom-1/3 -left-20 h-[400px] w-[400px] rounded-full bg-[#1E2C42]/30 blur-[100px]" style={{ animationDelay: "-4s" }} />
-      </div>
+      <AmbientBackground
+        primary="-top-24 right-1/4 h-[500px] w-[500px] blur-[130px]"
+        secondary="bottom-1/3 -left-20 h-[400px] w-[400px] blur-[100px]"
+        secondaryDelay="-4s"
+      />
 
       <div className="mx-auto max-w-5xl px-6 py-16">
-        {/* Header with decorative gold lines */}
-        <div className="animate-fade-in-up mb-12 border-b border-[#1E2C42] pb-10">
-          <div className="mb-3 flex items-center gap-3">
-            <span className="h-px flex-1 bg-gradient-to-r from-transparent via-[#E8C77E]/40 to-transparent" />
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-[#E8C77E]">
-              Recommend
-            </p>
-            <span className="h-px flex-1 bg-gradient-to-r from-transparent via-[#E8C77E]/40 to-transparent" />
-          </div>
-          <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold tracking-tight lg:text-5xl">
-            <span className="text-gradient-gold">What should you read next?</span>
-          </h1>
-          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[#8CA0BE]">
-            Fine‑tune your preferences and let your library guide you to something new.
-          </p>
-        </div>
+        <PageHeader
+          eyebrow="Recommend"
+          title="What should you read next?"
+          description="Fine‑tune your preferences and let your library guide you to something new."
+        />
 
         {/* Step indicator – enhanced with subtle background */}
         <div className="animate-fade-in-up mb-10 flex items-center gap-2" style={{ animationDelay: "0.05s" }}>
@@ -304,27 +280,25 @@ export default function RecommendationsPage() {
             {/* Filter groups with enhanced design */}
             <FilterGroup
               label="Completion Status"
-              options={completionOptions}
+              options={COMPLETION_STATUS_OPTIONS}
               value={completionStatus}
               onChange={setCompletionStatus}
             />
             <FilterGroup
               label="Chapter Length"
-              options={chapterLengthOptions}
+              options={CHAPTER_LENGTH_OPTIONS}
               value={chapterLength}
               onChange={setChapterLength}
             />
             <FilterGroup
               label="Content Rating"
-              options={contentRatingOptions}
+              options={CONTENT_RATING_OPTIONS}
               value={contentRating}
               onChange={setContentRating}
             />
 
             <div>
-              <p className="mb-3 font-mono text-[10px] uppercase tracking-wide text-[#8CA0BE]">
-                Anything else? (optional)
-              </p>
+              <p className={`mb-3 ${LABEL}`}>Anything else? (optional)</p>
               <textarea
                 value={customQuery}
                 onChange={(e) => setCustomQuery(e.target.value)}
@@ -336,7 +310,7 @@ export default function RecommendationsPage() {
 
             <button
               onClick={() => setStep("base")}
-              className="rounded-full border border-[#F5F5F0] bg-[#F5F5F0] px-7 py-3.5 text-xs font-semibold uppercase tracking-wide text-[#0B1220] transition-all duration-300 hover:shadow-[0_0_30px_rgba(245,245,240,0.35)] active:scale-95"
+              className={cn(BUTTON_PRIMARY, "px-7 py-3.5")}
             >
               Next: Choose a Base Manga →
             </button>
@@ -368,8 +342,8 @@ export default function RecommendationsPage() {
                       {m.title}
                     </p>
                     {m.genres && (
-                      <p className="mt-1 font-mono text-[10px] uppercase tracking-wide text-[#8CA0BE]">
-                        {m.genres.split(",").slice(0, 3).join(" · ")}
+                      <p className={`mt-1 ${LABEL}`}>
+                        {parseList(m.genres).slice(0, 3).join(" · ")}
                       </p>
                     )}
                   </button>
@@ -385,14 +359,14 @@ export default function RecommendationsPage() {
             <div className="flex gap-3">
               <button
                 onClick={() => setStep("filters")}
-                className="rounded-full border border-[#1E2C42] px-6 py-3.5 text-xs font-semibold uppercase tracking-wide text-[#8CA0BE] transition-all duration-300 hover:border-[#F5F5F0]/40 hover:text-[#F5F5F0]"
+                className={cn(BUTTON_SECONDARY, "px-6 py-3.5")}
               >
                 ← Back
               </button>
               <button
                 onClick={() => fetchRecommendations(false, true)}
                 disabled={loading}
-                className="rounded-full border border-[#F5F5F0] bg-[#F5F5F0] px-7 py-3.5 text-xs font-semibold uppercase tracking-wide text-[#0B1220] transition-all duration-300 hover:shadow-[0_0_30px_rgba(245,245,240,0.35)] active:scale-95 disabled:opacity-50"
+                className={cn(BUTTON_PRIMARY, "px-7 py-3.5")}
               >
                 {loading ? "Thinking..." : "Get Recommendations"}
               </button>
@@ -414,11 +388,7 @@ export default function RecommendationsPage() {
               </p>
             )}
 
-            {error && (
-              <div className="mb-6 rounded-xl border border-[#4A2A2A] bg-[#1A0F0F] px-4 py-3 text-sm text-[#E8A0A0]">
-                {error}
-              </div>
-            )}
+            {error && <ErrorBanner className="mb-6">{error}</ErrorBanner>}
 
             <div className="space-y-4">
               {recommendations.map((rec, i) => (
@@ -429,18 +399,16 @@ export default function RecommendationsPage() {
                 >
                   {/* Cover */}
                   <div className="relative aspect-[2/3] w-24 flex-shrink-0 self-start overflow-hidden rounded-lg border border-[#1E2C42] bg-[#0B1220]">
-                    {rec.coverUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={rec.coverUrl}
-                        alt={rec.title}
-                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                      />
-                    ) : (
-                      <div className="flex h-full items-center justify-center px-2 text-center font-mono text-[9px] uppercase tracking-wide text-[#8CA0BE]">
-                        No Cover
-                      </div>
-                    )}
+                    <CoverImage
+                      src={rec.coverUrl ?? null}
+                      alt={rec.title}
+                      imgClassName="transition-transform duration-300 group-hover:scale-105"
+                      fallback={
+                        <div className="flex h-full items-center justify-center px-2 text-center font-mono text-[9px] uppercase tracking-wide text-[#8CA0BE]">
+                          No Cover
+                        </div>
+                      }
+                    />
                   </div>
 
                   <div className="min-w-0 flex-1">
@@ -460,12 +428,7 @@ export default function RecommendationsPage() {
                     {rec.genres && rec.genres.length > 0 && (
                       <div className="mb-3 flex flex-wrap gap-1.5">
                         {rec.genres.map((genre) => (
-                          <span
-                            key={genre}
-                            className="rounded-full border border-[#E8C77E]/20 bg-[#E8C77E]/5 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[#E8C77E]"
-                          >
-                            {genre}
-                          </span>
+                          <Chip key={genre}>{genre}</Chip>
                         ))}
                       </div>
                     )}
@@ -477,12 +440,13 @@ export default function RecommendationsPage() {
                       ✦ {rec.reason}
                     </p>
                     <div className="flex flex-wrap gap-2">
-                      <button
+                      <TogglePill
+                        active={false}
                         onClick={() => markAlreadyRead(rec)}
-                        className="rounded-full border border-[#1E2C42] px-3.5 py-1.5 font-mono text-[10px] uppercase tracking-wide text-[#8CA0BE] transition-all duration-200 hover:border-[#F5F5F0]/40 hover:text-[#F5F5F0]"
+                        className="px-3.5 py-1.5 text-[10px]"
                       >
                         Already Read
-                      </button>
+                      </TogglePill>
                       {rec.siteUrl && (
                         <a
                           href={rec.siteUrl}
@@ -500,25 +464,25 @@ export default function RecommendationsPage() {
             </div>
 
             {recommendations.length === 0 && !error && (
-              <div className="rounded-2xl border border-dashed border-[#1E2C42] px-6 py-16 text-center">
+              <EmptyState>
                 <p className="text-sm text-[#8CA0BE]">
                   {note ??
                     'No more recommendations found. Try adjusting your filters or use "Diverge" to explore further.'}
                 </p>
-              </div>
+              </EmptyState>
             )}
 
             <div className="mt-8 flex flex-wrap gap-3">
               <button
                 onClick={() => setStep("filters")}
-                className="rounded-full border border-[#1E2C42] px-6 py-3.5 text-xs font-semibold uppercase tracking-wide text-[#8CA0BE] transition-all duration-300 hover:border-[#F5F5F0]/40 hover:text-[#F5F5F0]"
+                className={cn(BUTTON_SECONDARY, "px-6 py-3.5")}
               >
                 ← Start Over
               </button>
               <button
                 onClick={() => fetchRecommendations(false)}
                 disabled={loading}
-                className="rounded-full border border-[#F5F5F0] bg-[#F5F5F0] px-6 py-3.5 text-xs font-semibold uppercase tracking-wide text-[#0B1220] transition-all duration-300 hover:shadow-[0_0_30px_rgba(245,245,240,0.35)] active:scale-95 disabled:opacity-50"
+                className={cn(BUTTON_PRIMARY, "px-6 py-3.5")}
               >
                 {loading ? "Thinking..." : "Suggest More"}
               </button>
@@ -536,11 +500,8 @@ export default function RecommendationsPage() {
 
       {/* Already Read confirmation modal */}
       {confirmingRec && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6 backdrop-blur-sm">
-          <div className="animate-fade-in-up w-full max-w-sm rounded-2xl border-2 border-[#1E2C42] bg-[#0F1B2E] p-6 shadow-2xl">
-            <h3 className="mb-2 font-[family-name:var(--font-display)] text-lg font-semibold text-[#F5F5F0]">
-              Add to library?
-            </h3>
+        <Modal title="Add to library?">
+          <div>
             <p className="mb-6 text-sm text-[#8CA0BE]">
               Add <span className="text-[#F5F5F0]">{confirmingRec.title}</span>{" "}
               to your library as well as marking it already read?
@@ -549,20 +510,20 @@ export default function RecommendationsPage() {
               <button
                 onClick={confirmAddToLibrary}
                 disabled={addingToLibrary}
-                className="flex-1 rounded-full border border-[#F5F5F0] bg-[#F5F5F0] px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-[#0B1220] transition-all duration-300 hover:shadow-[0_0_20px_rgba(245,245,240,0.3)] active:scale-95 disabled:opacity-50"
+                className={cn(BUTTON_PRIMARY, "flex-1 px-4 py-2.5")}
               >
                 {addingToLibrary ? "Adding..." : "Yes, add it"}
               </button>
               <button
                 onClick={declineAddToLibrary}
                 disabled={addingToLibrary}
-                className="flex-1 rounded-full border border-[#1E2C42] px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-[#8CA0BE] transition-all duration-300 hover:border-[#F5F5F0]/40 hover:text-[#F5F5F0] disabled:opacity-50"
+                className={cn(BUTTON_SECONDARY, "flex-1 px-4 py-2.5")}
               >
                 No, just dismiss
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
@@ -581,22 +542,16 @@ function FilterGroup({
 }) {
   return (
     <div>
-      <p className="mb-3 font-mono text-[10px] uppercase tracking-wide text-[#8CA0BE]">
-        {label}
-      </p>
+      <p className={`mb-3 ${LABEL}`}>{label}</p>
       <div className="flex flex-wrap gap-2">
         {options.map((opt) => (
-          <button
+          <TogglePill
             key={opt.value}
+            active={value === opt.value}
             onClick={() => onChange(opt.value)}
-            className={`rounded-full border px-3.5 py-1.5 font-mono text-xs uppercase tracking-wide transition-all duration-200 ${
-              value === opt.value
-                ? "border-[#F5F5F0] bg-[#F5F5F0] text-[#0B1220]"
-                : "border-[#1E2C42] text-[#8CA0BE] hover:border-[#F5F5F0]/40 hover:text-[#F5F5F0]"
-            }`}
           >
             {opt.label}
-          </button>
+          </TogglePill>
         ))}
       </div>
     </div>

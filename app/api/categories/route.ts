@@ -1,7 +1,9 @@
 // GET  /api/categories        -> list all categories
 // POST /api/categories        -> create a new category { name, color? }
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { badRequest, errorResponse, serverError } from "@/lib/api";
 
 export async function GET() {
   try {
@@ -11,11 +13,7 @@ export async function GET() {
     });
     return NextResponse.json({ categories });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json(
-      { error: "Failed to load categories" },
-      { status: 500 }
-    );
+    return serverError(err, "Failed to load categories");
   }
 }
 
@@ -23,7 +21,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
 
   if (!body.name || typeof body.name !== "string") {
-    return NextResponse.json({ error: "Missing 'name'" }, { status: 400 });
+    return badRequest("Missing 'name'");
   }
 
   try {
@@ -34,18 +32,14 @@ export async function POST(req: NextRequest) {
       },
     });
     return NextResponse.json({ success: true, category });
-  } catch (err: any) {
+  } catch (err) {
     // Unique constraint violation = category already exists
-    if (err.code === "P2002") {
-      return NextResponse.json(
-        { error: "A category with that name already exists" },
-        { status: 409 }
-      );
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      return errorResponse("A category with that name already exists", 409);
     }
-    console.error(err);
-    return NextResponse.json(
-      { error: "Failed to create category" },
-      { status: 500 }
-    );
+    return serverError(err, "Failed to create category");
   }
 }
