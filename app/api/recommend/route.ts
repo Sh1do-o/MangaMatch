@@ -15,6 +15,13 @@ import {
   type MangaResult,
 } from "@/lib/anilist";
 import { prisma } from "@/lib/db";
+import {
+  MAX_TEXT_LENGTH,
+  MAX_TITLE_LENGTH,
+  parseIntegerArray,
+  parseStringArray,
+  readJsonBody,
+} from "@/lib/validation";
 
 function matchesCompletionStatus(
   status: string | null,
@@ -41,19 +48,48 @@ function matchesChapterLength(
   return true;
 }
 
-export async function POST(req: NextRequest) {
-  const body = await req.json();
+const COMPLETION_STATUSES = ["any", "ongoing", "completed"] as const;
+const CHAPTER_LENGTHS = ["any", "short", "medium", "long"] as const;
+const CONTENT_RATINGS = ["any", "safe"] as const;
 
-  const {
-    genres = [],
-    completionStatus = "any",
-    chapterLength = "any",
-    contentRating = "any",
-    baseMangaIds = [],
-    diverge = false,
-    excludeTitles = [],
-    customQuery = "",
-  } = body;
+function pickOption<T extends string>(
+  value: unknown,
+  allowed: readonly T[]
+): T | null {
+  if (value === undefined) return allowed[0];
+  return allowed.includes(value as T) ? (value as T) : null;
+}
+
+export async function POST(req: NextRequest) {
+  const body = await readJsonBody(req);
+  if (!body) {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const genres = parseStringArray(body.genres, MAX_TITLE_LENGTH);
+  const baseMangaIds = parseIntegerArray(body.baseMangaIds);
+  const excludeTitles = parseStringArray(body.excludeTitles, MAX_TITLE_LENGTH, 500);
+  const completionStatus = pickOption(body.completionStatus, COMPLETION_STATUSES);
+  const chapterLength = pickOption(body.chapterLength, CHAPTER_LENGTHS);
+  const contentRating = pickOption(body.contentRating, CONTENT_RATINGS);
+  const diverge = body.diverge === true;
+  const customQuery =
+    typeof body.customQuery === "string" ? body.customQuery : "";
+
+  if (
+    !genres ||
+    !baseMangaIds ||
+    !excludeTitles ||
+    !completionStatus ||
+    !chapterLength ||
+    !contentRating ||
+    customQuery.length > MAX_TEXT_LENGTH
+  ) {
+    return NextResponse.json(
+      { error: "Invalid recommendation parameters" },
+      { status: 400 }
+    );
+  }
 
   try {
     let baseManga: { title: string; genres: string[]; synopsis: string | null }[] = [];
@@ -61,7 +97,7 @@ export async function POST(req: NextRequest) {
 
     if (baseMangaIds.length > 0) {
       const mangaList = await prisma.manga.findMany({
-        where: { id: { in: baseMangaIds.map(Number) } },
+        where: { id: { in: baseMangaIds } },
       });
       baseManga = mangaList.map((manga) => ({
         title: manga.title,
@@ -76,7 +112,7 @@ export async function POST(req: NextRequest) {
       select: { title: true },
     });
     const excludeTitlesLower = new Set(
-      [...excludeTitles, ...libraryManga.map((m) => m.title)].map((t: string) =>
+      [...excludeTitles, ...libraryManga.map((m) => m.title)].map((t) =>
         t.toLowerCase()
       )
     );
@@ -172,9 +208,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ recommendations });
   } catch (err) {
     console.error(err);
-    const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json(
-      { error: "Failed to generate recommendations", details: message },
+      { error: "Failed to generate recommendations" },
       { status: 500 }
     );
   }

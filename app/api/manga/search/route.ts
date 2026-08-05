@@ -6,9 +6,9 @@ import { searchManga } from "@/lib/anilist";
 export async function GET(req: NextRequest) {
   const query = req.nextUrl.searchParams.get("q");
 
-  if (!query) {
+  if (!query || query.length > 200) {
     return NextResponse.json(
-      { error: "Missing query parameter 'q'" },
+      { error: "Query parameter 'q' must be 1-200 characters" },
       { status: 400 }
     );
   }
@@ -18,9 +18,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ query, results });
   } catch (err) {
     console.error(err);
-    const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json(
-      { error: "Failed to fetch from Jikan API", details: message },
+      { error: "Failed to fetch manga" },
       { status: 500 }
     );
   }

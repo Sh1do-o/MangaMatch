@@ -121,10 +121,15 @@ export async function rankCandidates(
   const prompt = buildPrompt(candidates, filters);
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      // Key goes in a header rather than the query string so it can't leak
+      // into request logs, proxies, or error messages.
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
       }),
@@ -133,7 +138,8 @@ export async function rankCandidates(
 
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`Gemini API error: ${res.status} ${errText}`);
+    console.error(`Gemini API error: ${res.status} ${errText}`);
+    throw new Error(`Gemini API error: ${res.status}`);
   }
 
   const data = await res.json();

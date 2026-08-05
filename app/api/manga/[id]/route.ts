@@ -2,6 +2,7 @@
 // DELETE /api/manga/[id]  -> removes a manga from the library
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { parseId, readJsonBody } from "@/lib/validation";
 
 const VALID_STATUSES = ["planning", "reading", "completed"];
 
@@ -10,13 +11,23 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const body = await req.json();
+  const mangaId = parseId(id);
+
+  if (!mangaId) {
+    return NextResponse.json({ error: "Invalid manga id" }, { status: 400 });
+  }
+
+  const body = await readJsonBody(req);
+  if (!body) {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
   const { readingStatus, rating } = body;
 
   const data: { readingStatus?: string; rating?: number | null } = {};
 
   if (readingStatus !== undefined) {
-    if (!VALID_STATUSES.includes(readingStatus)) {
+    if (typeof readingStatus !== "string" || !VALID_STATUSES.includes(readingStatus)) {
       return NextResponse.json(
         { error: `readingStatus must be one of: ${VALID_STATUSES.join(", ")}` },
         { status: 400 }
@@ -37,7 +48,7 @@ export async function PATCH(
 
   try {
     const manga = await prisma.manga.update({
-      where: { id: Number(id) },
+      where: { id: mangaId },
       data,
     });
     return NextResponse.json({ success: true, manga });
@@ -55,9 +66,14 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const mangaId = parseId(id);
+
+  if (!mangaId) {
+    return NextResponse.json({ error: "Invalid manga id" }, { status: 400 });
+  }
 
   try {
-    await prisma.manga.delete({ where: { id: Number(id) } });
+    await prisma.manga.delete({ where: { id: mangaId } });
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error(err);
