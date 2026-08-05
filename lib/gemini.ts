@@ -45,7 +45,7 @@ function buildPrompt(
 
   if (filters.genres.length > 0) {
     parts.push(
-      `Preferred genres: ${filters.genres.join(", ")}. Favor candidates matching several of these, but don't treat this as a strict requirement — a great pick matching fewer genres is better than a mediocre pick matching all of them.`
+      `Preferred genres/themes: ${filters.genres.join(", ")}. Every candidate below already matches at least one of these (some are AniList themes rather than genres, so they won't always appear in a candidate's listed genres). Favor candidates matching several of them, but don't treat that as a strict requirement — a great pick matching fewer is better than a mediocre pick matching all of them.`
     );
   }
   if (filters.completionStatus !== "any") {
@@ -146,16 +146,27 @@ export async function rankCandidates(
 
   const cleaned = text.replace(/```json|```/g, "").trim();
 
+  let parsed: unknown;
   try {
-    const parsed: RankedPick[] = JSON.parse(cleaned);
-    // Guard against out-of-range or malformed indices
-    return parsed.filter(
-      (p) =>
-        typeof p.index === "number" &&
-        p.index >= 0 &&
-        p.index < candidates.length
-    );
+    parsed = JSON.parse(cleaned);
   } catch {
     throw new Error("Failed to parse Gemini response as JSON");
   }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error("Gemini response was not a JSON array of picks");
+  }
+
+  // Guard against malformed, out-of-range, and repeated indices — a repeated
+  // index would surface the same manga twice in the results.
+  const seen = new Set<number>();
+  return parsed.filter((p): p is RankedPick => {
+    if (!p || typeof p !== "object") return false;
+    const { index, reason } = p as Partial<RankedPick>;
+    if (!Number.isInteger(index) || typeof reason !== "string") return false;
+    const i = index as number;
+    if (i < 0 || i >= candidates.length || seen.has(i)) return false;
+    seen.add(i);
+    return true;
+  });
 }

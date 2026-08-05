@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ANILIST_GENRES, isAniListGenre } from "@/lib/anilist";
 
 interface SavedManga {
   id: number;
@@ -41,33 +42,22 @@ const contentRatingOptions = [
   { value: "mature", label: "Mature" },
 ];
 
-const STANDARD_GENRES = [
-  "Action",
-  "Adventure",
-  "Comedy",
-  "Drama",
-  "Fantasy",
-  "Horror",
-  "Mystery",
-  "Psychological",
-  "Romance",
-  "Sci-Fi",
-  "Slice of Life",
-  "Sports",
-  "Supernatural",
-  "Thriller",
-  "Historical",
+// AniList genres, queried with `genre:`. Hentai is left out — it can never
+// appear anyway, since the candidate queries are isAdult: false.
+const GENRE_OPTIONS = ANILIST_GENRES.filter((g) => g !== "Hentai");
+
+// AniList *tags*, not genres — `media(genre: "Isekai")` matches nothing, so
+// these are queried through `tag_in` instead.
+const THEME_OPTIONS = [
   "Isekai",
-  "Mecha",
-  "Music",
   "School",
-  "Seinen",
-  "Shoujo",
-  "Shounen",
-  "Josei",
-  "Ecchi",
+  "Historical",
   "Martial Arts",
   "Tragedy",
+  "Shounen",
+  "Shoujo",
+  "Seinen",
+  "Josei",
 ];
 
 export default function RecommendationsPage() {
@@ -85,6 +75,11 @@ export default function RecommendationsPage() {
   // Results state
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  // Every title suggested so far this run, not just the batch on screen —
+  // otherwise "Suggest More" can re-suggest an earlier batch.
+  const [seenTitles, setSeenTitles] = useState<Set<string>>(new Set());
+  const [poolPage, setPoolPage] = useState(1);
+  const [note, setNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingRec, setConfirmingRec] = useState<Recommendation | null>(null);
@@ -96,13 +91,15 @@ export default function RecommendationsPage() {
       .then((data) => setLibrary(data.manga ?? []));
   }, []);
 
-  const allGenres = STANDARD_GENRES;
+  // Library genres come from AniList's genre list, so only genre selections
+  // (not tag selections) can match them.
+  const selectedLibraryGenres = Array.from(selectedGenres).filter(isAniListGenre);
 
   const baseCandidates =
-    selectedGenres.size === 0
+    selectedLibraryGenres.length === 0
       ? library
       : library.filter((m) =>
-          m.genres.split(",").some((g) => selectedGenres.has(g))
+          m.genres.split(",").some((g) => selectedLibraryGenres.includes(g))
         );
 
   function toggleGenre(genre: string) {
@@ -121,9 +118,15 @@ export default function RecommendationsPage() {
     });
   }
 
-  async function fetchRecommendations(diverge = false) {
+  async function fetchRecommendations(diverge = false, fresh = false) {
     setLoading(true);
     setError(null);
+    setNote(null);
+
+    const excludeTitles = fresh
+      ? []
+      : [...Array.from(dismissed), ...Array.from(seenTitles)];
+    const page = fresh ? 1 : poolPage + 1;
 
     try {
       const res = await fetch("/api/recommend", {
@@ -137,10 +140,8 @@ export default function RecommendationsPage() {
           baseMangaIds: Array.from(baseMangaIds),
           diverge,
           customQuery,
-          excludeTitles: [
-            ...Array.from(dismissed),
-            ...recommendations.map((r) => r.title),
-          ],
+          excludeTitles,
+          page,
         }),
       });
       const data = await res.json();
@@ -149,7 +150,16 @@ export default function RecommendationsPage() {
         throw new Error(data.details || data.error || "Request failed");
       }
 
-      setRecommendations(data.recommendations);
+      const batch: Recommendation[] = data.recommendations ?? [];
+      setRecommendations(batch);
+      setNote(data.note ?? null);
+      setPoolPage(page);
+      setSeenTitles((prev) => {
+        const next = fresh ? new Set<string>() : new Set(prev);
+        for (const rec of batch) next.add(rec.title);
+        return next;
+      });
+      if (fresh) setDismissed(new Set());
       setStep("results");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -262,29 +272,34 @@ export default function RecommendationsPage() {
         {/* Step 1: Filters */}
         {step === "filters" && (
           <div className="space-y-8">
-            {/* Genres */}
-            {allGenres.length > 0 && (
-              <div>
-                <p className="mb-3 font-mono text-[10px] uppercase tracking-wide text-[#8CA0BE]">
-                  Genres (select any that apply)
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {allGenres.map((genre) => (
-                    <button
-                      key={genre}
-                      onClick={() => toggleGenre(genre)}
-                      className={`rounded-full border px-3.5 py-1.5 font-mono text-xs uppercase tracking-wide transition-all duration-200 ${
-                        selectedGenres.has(genre)
-                          ? "border-[#E8C77E] bg-[#E8C77E] text-[#0B1220]"
-                          : "border-[#1E2C42] text-[#8CA0BE] hover:border-[#E8C77E]/40 hover:text-[#E8C77E]"
-                      }`}
-                    >
-                      {genre}
-                    </button>
-                  ))}
+            {/* Genres and themes */}
+            <div className="space-y-6">
+              {[
+                { label: "Genres (select any that apply)", values: GENRE_OPTIONS },
+                { label: "Themes (select any that apply)", values: THEME_OPTIONS },
+              ].map((group) => (
+                <div key={group.label}>
+                  <p className="mb-3 font-mono text-[10px] uppercase tracking-wide text-[#8CA0BE]">
+                    {group.label}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {group.values.map((genre) => (
+                      <button
+                        key={genre}
+                        onClick={() => toggleGenre(genre)}
+                        className={`rounded-full border px-3.5 py-1.5 font-mono text-xs uppercase tracking-wide transition-all duration-200 ${
+                          selectedGenres.has(genre)
+                            ? "border-[#E8C77E] bg-[#E8C77E] text-[#0B1220]"
+                            : "border-[#1E2C42] text-[#8CA0BE] hover:border-[#E8C77E]/40 hover:text-[#E8C77E]"
+                        }`}
+                      >
+                        {genre}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
 
             {/* Filter groups with enhanced design */}
             <FilterGroup
@@ -375,7 +390,7 @@ export default function RecommendationsPage() {
                 ← Back
               </button>
               <button
-                onClick={() => fetchRecommendations(false)}
+                onClick={() => fetchRecommendations(false, true)}
                 disabled={loading}
                 className="rounded-full border border-[#F5F5F0] bg-[#F5F5F0] px-7 py-3.5 text-xs font-semibold uppercase tracking-wide text-[#0B1220] transition-all duration-300 hover:shadow-[0_0_30px_rgba(245,245,240,0.35)] active:scale-95 disabled:opacity-50"
               >
@@ -487,7 +502,8 @@ export default function RecommendationsPage() {
             {recommendations.length === 0 && !error && (
               <div className="rounded-2xl border border-dashed border-[#1E2C42] px-6 py-16 text-center">
                 <p className="text-sm text-[#8CA0BE]">
-                  No more recommendations found. Try adjusting your filters or use &quot;Diverge&quot; to explore further.
+                  {note ??
+                    'No more recommendations found. Try adjusting your filters or use "Diverge" to explore further.'}
                 </p>
               </div>
             )}
