@@ -67,6 +67,16 @@ A personal manga tracking and AI-powered recommendation app. Search or browse ma
 
 5. Open [http://localhost:3000](http://localhost:3000)
 
+### Tests
+
+Unit tests run on [Vitest](https://vitest.dev/) and cover the API helper libraries (`lib/`) and the route handlers (`app/api/`). All network calls (AniList, Gemini) and Prisma access are mocked, so no API key or database is required.
+
+```bash
+npm test              # run once
+npm run test:watch    # watch mode
+npm run test:coverage # with a coverage report (also written to coverage/)
+```
+
 ## Project Structure
 
 ```
@@ -99,6 +109,9 @@ components/
   ReadingStatusEditor.tsx
   RatingEditor.tsx
   DeleteMangaButton.tsx
+tests/
+  lib/                  — unit tests for the AniList/Gemini/Jikan helpers
+  api/                  — unit tests for the route handlers
 prisma/
   schema.prisma         — Manga + Category models
   migrations/           — 6 migrations tracking schema evolution
@@ -124,7 +137,7 @@ This app uses a single-user, no-login model — everything is stored locally in 
 - No pagination yet — large libraries and browse results render all at once
 - `lib/jikan.ts` is dead code left over from the pre-AniList version; safe to remove but kept for now in case of a fallback need
 - No image optimization/caching for cover art — covers are hotlinked directly from AniList's CDN
-- No automated tests
+- No tests for the React page/component layer yet — only `lib/` and `app/api/` are covered
 
 ## Roadmap Ideas
 
