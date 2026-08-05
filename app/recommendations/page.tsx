@@ -1,25 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import AmbientBackground from "@/components/AmbientBackground";
-import PageHeader from "@/components/PageHeader";
-import ErrorBanner from "@/components/ErrorBanner";
-import EmptyState from "@/components/EmptyState";
-import Modal from "@/components/Modal";
-import CoverImage from "@/components/CoverImage";
-import Chip from "@/components/Chip";
-import TogglePill from "@/components/TogglePill";
-import { addMangaToLibrary, fetchLibrary } from "@/lib/api-client";
-import { fetchJson, jsonRequest } from "@/lib/http";
-import {
-  CHAPTER_LENGTH_OPTIONS,
-  COMPLETION_STATUS_OPTIONS,
-  CONTENT_RATING_OPTIONS,
-} from "@/lib/filters";
-import { STANDARD_GENRES } from "@/lib/genres";
-import { parseList, toggleSetItem } from "@/lib/manga";
-import type { SavedManga } from "@/lib/types";
-import { cn, BUTTON_PRIMARY, BUTTON_SECONDARY, LABEL } from "@/lib/ui";
+import { ANILIST_GENRES, isAniListGenre } from "@/lib/anilist";
+
+interface SavedManga {
+  id: number;
+  title: string;
+  genres: string;
+  synopsis: string | null;
+  coverUrl: string | null;
+}
 
 interface Recommendation {
   title: string;
@@ -32,6 +22,43 @@ interface Recommendation {
   status?: string | null;
   siteUrl?: string | null;
 }
+
+const completionOptions = [
+  { value: "any", label: "Any" },
+  { value: "ongoing", label: "Ongoing" },
+  { value: "completed", label: "Completed" },
+];
+
+const chapterLengthOptions = [
+  { value: "any", label: "Any" },
+  { value: "short", label: "Short (< 100 ch.)" },
+  { value: "medium", label: "Medium (100-400 ch.)" },
+  { value: "long", label: "Long (400+ ch.)" },
+];
+
+const contentRatingOptions = [
+  { value: "any", label: "Any" },
+  { value: "safe", label: "Safe / All Ages" },
+  { value: "mature", label: "Mature" },
+];
+
+// AniList genres, queried with `genre:`. Hentai is left out — it can never
+// appear anyway, since the candidate queries are isAdult: false.
+const GENRE_OPTIONS = ANILIST_GENRES.filter((g) => g !== "Hentai");
+
+// AniList *tags*, not genres — `media(genre: "Isekai")` matches nothing, so
+// these are queried through `tag_in` instead.
+const THEME_OPTIONS = [
+  "Isekai",
+  "School",
+  "Historical",
+  "Martial Arts",
+  "Tragedy",
+  "Shounen",
+  "Shoujo",
+  "Seinen",
+  "Josei",
+];
 
 export default function RecommendationsPage() {
   const [library, setLibrary] = useState<SavedManga[]>([]);
@@ -48,6 +75,11 @@ export default function RecommendationsPage() {
   // Results state
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  // Every title suggested so far this run, not just the batch on screen —
+  // otherwise "Suggest More" can re-suggest an earlier batch.
+  const [seenTitles, setSeenTitles] = useState<Set<string>>(new Set());
+  const [poolPage, setPoolPage] = useState(1);
+  const [note, setNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingRec, setConfirmingRec] = useState<Recommendation | null>(null);
@@ -59,13 +91,15 @@ export default function RecommendationsPage() {
       .catch(() => setLibrary([]));
   }, []);
 
-  const allGenres = STANDARD_GENRES;
+  // Library genres come from AniList's genre list, so only genre selections
+  // (not tag selections) can match them.
+  const selectedLibraryGenres = Array.from(selectedGenres).filter(isAniListGenre);
 
   const baseCandidates =
-    selectedGenres.size === 0
+    selectedLibraryGenres.length === 0
       ? library
       : library.filter((m) =>
-          parseList(m.genres).some((g) => selectedGenres.has(g))
+          m.genres.split(",").some((g) => selectedLibraryGenres.includes(g))
         );
 
   function toggleGenre(genre: string) {
@@ -76,9 +110,15 @@ export default function RecommendationsPage() {
     setBaseMangaIds((prev) => toggleSetItem(prev, id));
   }
 
-  async function fetchRecommendations(diverge = false) {
+  async function fetchRecommendations(diverge = false, fresh = false) {
     setLoading(true);
     setError(null);
+    setNote(null);
+
+    const excludeTitles = fresh
+      ? []
+      : [...Array.from(dismissed), ...Array.from(seenTitles)];
+    const page = fresh ? 1 : poolPage + 1;
 
     try {
       const data = await fetchJson<{ recommendations: Recommendation[] }>(
@@ -91,14 +131,26 @@ export default function RecommendationsPage() {
           baseMangaIds: Array.from(baseMangaIds),
           diverge,
           customQuery,
-          excludeTitles: [
-            ...Array.from(dismissed),
-            ...recommendations.map((r) => r.title),
-          ],
-        })
-      );
+          excludeTitles,
+          page,
+        }),
+      });
+      const data = await res.json();
 
-      setRecommendations(data.recommendations);
+      if (!res.ok) {
+        throw new Error(data.details || data.error || "Request failed");
+      }
+
+      const batch: Recommendation[] = data.recommendations ?? [];
+      setRecommendations(batch);
+      setNote(data.note ?? null);
+      setPoolPage(page);
+      setSeenTitles((prev) => {
+        const next = fresh ? new Set<string>() : new Set(prev);
+        for (const rec of batch) next.add(rec.title);
+        return next;
+      });
+      if (fresh) setDismissed(new Set());
       setStep("results");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -196,26 +248,34 @@ export default function RecommendationsPage() {
         {/* Step 1: Filters */}
         {step === "filters" && (
           <div className="space-y-8">
-            {/* Genres */}
-            {allGenres.length > 0 && (
-              <div>
-                <p className={`mb-3 ${LABEL}`}>
-                  Genres (select any that apply)
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {allGenres.map((genre) => (
-                    <TogglePill
-                      key={genre}
-                      active={selectedGenres.has(genre)}
-                      onClick={() => toggleGenre(genre)}
-                      accent="gold"
-                    >
-                      {genre}
-                    </TogglePill>
-                  ))}
+            {/* Genres and themes */}
+            <div className="space-y-6">
+              {[
+                { label: "Genres (select any that apply)", values: GENRE_OPTIONS },
+                { label: "Themes (select any that apply)", values: THEME_OPTIONS },
+              ].map((group) => (
+                <div key={group.label}>
+                  <p className="mb-3 font-mono text-[10px] uppercase tracking-wide text-[#8CA0BE]">
+                    {group.label}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {group.values.map((genre) => (
+                      <button
+                        key={genre}
+                        onClick={() => toggleGenre(genre)}
+                        className={`rounded-full border px-3.5 py-1.5 font-mono text-xs uppercase tracking-wide transition-all duration-200 ${
+                          selectedGenres.has(genre)
+                            ? "border-[#E8C77E] bg-[#E8C77E] text-[#0B1220]"
+                            : "border-[#1E2C42] text-[#8CA0BE] hover:border-[#E8C77E]/40 hover:text-[#E8C77E]"
+                        }`}
+                      >
+                        {genre}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
 
             {/* Filter groups with enhanced design */}
             <FilterGroup
@@ -304,7 +364,7 @@ export default function RecommendationsPage() {
                 ← Back
               </button>
               <button
-                onClick={() => fetchRecommendations(false)}
+                onClick={() => fetchRecommendations(false, true)}
                 disabled={loading}
                 className={cn(BUTTON_PRIMARY, "px-7 py-3.5")}
               >
@@ -406,7 +466,8 @@ export default function RecommendationsPage() {
             {recommendations.length === 0 && !error && (
               <EmptyState>
                 <p className="text-sm text-[#8CA0BE]">
-                  No more recommendations found. Try adjusting your filters or use &quot;Diverge&quot; to explore further.
+                  {note ??
+                    'No more recommendations found. Try adjusting your filters or use "Diverge" to explore further.'}
                 </p>
               </EmptyState>
             )}
