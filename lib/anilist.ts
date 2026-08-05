@@ -1,6 +1,7 @@
 // Helper functions for calling the AniList GraphQL API.
 // Docs: https://docs.anilist.co/
 // Official first-party API for AniList.co — no auth needed for public search.
+import { anilistStatusList } from "@/lib/filters";
 
 export interface MangaResult {
   malId: number; // AniList's own numeric ID (field name kept for compatibility)
@@ -18,46 +19,56 @@ export interface MangaResult {
   siteUrl: string | null; // link to the full AniList page
 }
 
+interface AniListDate {
+  year: number | null;
+  month: number | null;
+  day: number | null;
+}
+
+/** The `Media` selection shared by every query below. */
+interface AniListMedia {
+  id: number;
+  siteUrl: string | null;
+  title: { romaji: string | null; english: string | null };
+  genres: string[] | null;
+  coverImage: { extraLarge: string | null; large: string | null } | null;
+  description: string | null;
+  status: string | null;
+  chapters: number | null;
+  volumes: number | null;
+  averageScore: number | null;
+  startDate: AniListDate | null;
+  endDate: AniListDate | null;
+  staff: {
+    edges: { role: string; node: { name: { full: string } } }[];
+  } | null;
+}
+
+// Every query selects exactly the fields `mapMediaToResult` reads, so the
+// selection set is declared once and spliced into each query.
+const MEDIA_FIELDS = `
+  id
+  siteUrl
+  title { romaji english }
+  genres
+  coverImage { extraLarge large }
+  description(asHtml: false)
+  status
+  chapters
+  volumes
+  averageScore
+  startDate { year month day }
+  endDate { year month day }
+  staff(perPage: 5) {
+    edges { role node { name { full } } }
+  }
+`;
+
 const SEARCH_QUERY = `
 query ($search: String) {
   Page(perPage: 10) {
     media(search: $search, type: MANGA, sort: SEARCH_MATCH) {
-      id
-      siteUrl
-      title {
-        romaji
-        english
-      }
-      genres
-      coverImage {
-        extraLarge
-        large
-      }
-      description(asHtml: false)
-      status
-      chapters
-      volumes
-      averageScore
-      startDate {
-        year
-        month
-        day
-      }
-      endDate {
-        year
-        month
-        day
-      }
-      staff(perPage: 5) {
-        edges {
-          role
-          node {
-            name {
-              full
-            }
-          }
-        }
-      }
+      ${MEDIA_FIELDS}
     }
   }
 }
@@ -67,40 +78,19 @@ const BROWSE_QUERY = `
 query ($sort: [MediaSort], $genre: String) {
   Page(perPage: 10) {
     media(type: MANGA, sort: $sort, genre: $genre, isAdult: false) {
-      id
-      siteUrl
-      title {
-        romaji
-        english
-      }
-      genres
-      coverImage {
-        extraLarge
-        large
-      }
-      description(asHtml: false)
-      status
-      chapters
-      volumes
-      averageScore
-      startDate {
-        year
-        month
-        day
-      }
-      endDate {
-        year
-        month
-        day
-      }
-      staff(perPage: 5) {
-        edges {
-          role
-          node {
-            name {
-              full
-            }
-          }
+      ${MEDIA_FIELDS}
+    }
+  }
+}
+`;
+
+const MEDIA_RECOMMENDATIONS_QUERY = `
+query ($id: Int) {
+  Media(id: $id, type: MANGA) {
+    recommendations(sort: RATING_DESC, perPage: 10) {
+      nodes {
+        mediaRecommendation {
+          ${MEDIA_FIELDS}
         }
       }
     }
@@ -108,7 +98,7 @@ query ($sort: [MediaSort], $genre: String) {
 }
 `;
 
-function formatDate(d: { year: number | null; month: number | null; day: number | null } | null): string | null {
+function formatDate(d: AniListDate | null): string | null {
   if (!d || !d.year) return null;
   const month = String(d.month ?? 1).padStart(2, "0");
   const day = String(d.day ?? 1).padStart(2, "0");
@@ -120,15 +110,15 @@ function stripHtml(html: string | null): string | null {
   return html.replace(/<[^>]*>/g, "").trim();
 }
 
-function mapMediaToResult(item: any): MangaResult {
+function mapMediaToResult(item: AniListMedia): MangaResult {
   const authors =
     item.staff?.edges
-      ?.filter((e: any) => ["Story & Art", "Story", "Art"].includes(e.role))
-      .map((e: any) => e.node.name.full) ?? [];
+      ?.filter((e) => ["Story & Art", "Story", "Art"].includes(e.role))
+      .map((e) => e.node.name.full) ?? [];
 
   return {
     malId: item.id,
-    title: item.title.english ?? item.title.romaji,
+    title: item.title.english ?? item.title.romaji ?? "",
     genres: item.genres ?? [],
     coverUrl: item.coverImage?.extraLarge ?? item.coverImage?.large ?? null,
     synopsis: stripHtml(item.description),
@@ -143,10 +133,14 @@ function mapMediaToResult(item: any): MangaResult {
   };
 }
 
-async function fetchAniList(
+/**
+ * Posts a query to AniList and returns its `data` payload, retrying
+ * transient failures.
+ */
+async function postAniList<T>(
   query: string,
   variables: Record<string, unknown>
-): Promise<any[]> {
+): Promise<T> {
   const maxRetries = 3;
   let lastError: Error | null = null;
 
@@ -173,7 +167,7 @@ async function fetchAniList(
         );
       }
 
-      return json.data?.Page?.media ?? [];
+      return json.data as T;
     }
 
     // Retry on rate limiting (429) or transient server errors
@@ -187,6 +181,17 @@ async function fetchAniList(
   }
 
   throw lastError;
+}
+
+async function fetchAniList(
+  query: string,
+  variables: Record<string, unknown>
+): Promise<AniListMedia[]> {
+  const data = await postAniList<{ Page?: { media: AniListMedia[] } }>(
+    query,
+    variables
+  );
+  return data?.Page?.media ?? [];
 }
 
 export async function searchManga(query: string): Promise<MangaResult[]> {
@@ -214,34 +219,6 @@ export async function getBrowseManga(
   return media.map(mapMediaToResult);
 }
 
-const MEDIA_RECOMMENDATIONS_QUERY = `
-query ($id: Int) {
-  Media(id: $id, type: MANGA) {
-    recommendations(sort: RATING_DESC, perPage: 10) {
-      nodes {
-        mediaRecommendation {
-          id
-          siteUrl
-          title { romaji english }
-          genres
-          coverImage { extraLarge large }
-          description(asHtml: false)
-          status
-          chapters
-          volumes
-          averageScore
-          startDate { year month day }
-          endDate { year month day }
-          staff(perPage: 5) {
-            edges { role node { name { full } } }
-          }
-        }
-      }
-    }
-  }
-}
-`;
-
 /**
  * Fetches AniList's own community-submitted "if you liked this, try that"
  * recommendations for a given manga (by its AniList id). This is a much
@@ -252,26 +229,15 @@ export async function getMediaRecommendations(
   malId: number
 ): Promise<MangaResult[]> {
   try {
-    const res = await fetch("https://graphql.anilist.co", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        query: MEDIA_RECOMMENDATIONS_QUERY,
-        variables: { id: malId },
-      }),
-    });
-
-    if (!res.ok) return [];
-    const json = await res.json();
-    if (json.errors) return [];
-
-    const nodes = json.data?.Media?.recommendations?.nodes ?? [];
+    const data = await postAniList<{
+      Media?: {
+        recommendations: { nodes: { mediaRecommendation: AniListMedia | null }[] };
+      };
+    }>(MEDIA_RECOMMENDATIONS_QUERY, { id: malId });
+    const nodes = data?.Media?.recommendations?.nodes ?? [];
     return nodes
-      .map((n: any) => n.mediaRecommendation)
-      .filter(Boolean)
+      .map((n) => n.mediaRecommendation)
+      .filter((m): m is AniListMedia => m !== null)
       .map(mapMediaToResult);
   } catch {
     return [];
@@ -284,36 +250,6 @@ export interface CandidatePoolFilters {
   chapterLength: string; // "any" | "short" | "medium" | "long"
 }
 
-function buildCandidateQuery(activeArgs: string[]): string {
-  return `
-query (${activeArgs.map((a) => `$${a}: ${ARG_TYPES[a]}`).join(", ")}) {
-  Page(perPage: 30) {
-    media(
-      type: MANGA
-      isAdult: false
-      ${activeArgs.map((a) => `${a}: $${a}`).join("\n      ")}
-    ) {
-      id
-      siteUrl
-      title { romaji english }
-      genres
-      coverImage { extraLarge large }
-      description(asHtml: false)
-      status
-      chapters
-      volumes
-      averageScore
-      startDate { year month day }
-      endDate { year month day }
-      staff(perPage: 5) {
-        edges { role node { name { full } } }
-      }
-    }
-  }
-}
-`;
-}
-
 const ARG_TYPES: Record<string, string> = {
   genre_in: "[String]",
   status_in: "[MediaStatus]",
@@ -323,23 +259,20 @@ const ARG_TYPES: Record<string, string> = {
   startDate_greater: "FuzzyDateInt",
 };
 
-function chapterRange(chapterLength: string): { greater?: number; lesser?: number } {
-  switch (chapterLength) {
-    case "short":
-      return { lesser: 100 };
-    case "medium":
-      return { greater: 99, lesser: 401 };
-    case "long":
-      return { greater: 400 };
-    default:
-      return {};
+function buildCandidateQuery(activeArgs: string[]): string {
+  return `
+query (${activeArgs.map((a) => `$${a}: ${ARG_TYPES[a]}`).join(", ")}) {
+  Page(perPage: 30) {
+    media(
+      type: MANGA
+      isAdult: false
+      ${activeArgs.map((a) => `${a}: $${a}`).join("\n      ")}
+    ) {
+      ${MEDIA_FIELDS}
+    }
   }
 }
-
-function statusList(completionStatus: string): string[] | undefined {
-  if (completionStatus === "ongoing") return ["RELEASING", "HIATUS"];
-  if (completionStatus === "completed") return ["FINISHED"];
-  return undefined;
+`;
 }
 
 /**
@@ -364,7 +297,7 @@ function statusList(completionStatus: string): string[] | undefined {
 export async function getCandidatePool(
   filters: CandidatePoolFilters
 ): Promise<MangaResult[]> {
-  const status = statusList(filters.completionStatus);
+  const status = anilistStatusList(filters.completionStatus);
 
   const currentYear = new Date().getFullYear();
   const recentCutoff = (currentYear - 2) * 10000; // e.g. 2023 -> 20230000

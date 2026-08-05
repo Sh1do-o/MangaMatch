@@ -2,16 +2,14 @@
 // Saves a manga (picked from search results) into the local database.
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { badRequest, serverError } from "@/lib/api";
 import type { MangaResult } from "@/lib/anilist";
 
 export async function POST(req: NextRequest) {
   const body: MangaResult = await req.json();
 
   if (!body.malId || !body.title) {
-    return NextResponse.json(
-      { error: "Missing required fields: malId, title" },
-      { status: 400 }
-    );
+    return badRequest("Missing required fields: malId, title");
   }
 
   try {
@@ -38,10 +36,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, manga });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json(
-      { error: "Failed to save manga to library" },
-      { status: 500 }
-    );
+    return serverError(err, "Failed to save manga to library");
   }
 }
