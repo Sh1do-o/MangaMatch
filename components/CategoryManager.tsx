@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { errorMessage, requestJson } from "@/lib/http";
 
 interface Category {
   id: number;
@@ -21,26 +22,36 @@ export default function CategoryManager({
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/categories")
-      .then((r) => r.json())
-      .then((data) => setAllCategories(data.categories ?? []));
+    requestJson<{ categories?: Category[] }>("/api/categories")
+      .then((data) => setAllCategories(data.categories ?? []))
+      .catch((err) =>
+        setError(`Couldn't load categories: ${errorMessage(err)}`)
+      );
   }, []);
 
   const assignedIds = new Set(assigned.map((c) => c.id));
 
   async function toggleCategory(category: Category) {
     setBusyId(category.id);
+    setError(null);
     const isAssigned = assignedIds.has(category.id);
 
     try {
-      await fetch(`/api/manga/${mangaId}/categories`, {
+      // Previously the response was ignored entirely, so a failed
+      // add/remove still triggered a refresh and looked like a no-op.
+      await requestJson(`/api/manga/${mangaId}/categories`, {
         method: isAssigned ? "DELETE" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ categoryId: category.id }),
       });
       router.refresh();
+    } catch (err) {
+      setError(
+        `Couldn't ${isAssigned ? "remove" : "add"} "${category.name}": ${errorMessage(err)}`
+      );
     } finally {
       setBusyId(null);
     }
@@ -50,18 +61,20 @@ export default function CategoryManager({
     e.preventDefault();
     if (!newName.trim()) return;
     setCreating(true);
+    setError(null);
 
     try {
-      const res = await fetch("/api/categories", {
+      // A duplicate name (409) used to be dropped on the floor here: the
+      // input just stayed put with no explanation.
+      const data = await requestJson<{ category: Category }>("/api/categories", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newName.trim() }),
       });
-      const data = await res.json();
-      if (res.ok) {
-        setAllCategories((prev) => [...prev, data.category]);
-        setNewName("");
-      }
+      setAllCategories((prev) => [...prev, data.category]);
+      setNewName("");
+    } catch (err) {
+      setError(errorMessage(err));
     } finally {
       setCreating(false);
     }
@@ -116,6 +129,12 @@ export default function CategoryManager({
           + Add
         </button>
       </form>
+
+      {error && (
+        <p className="mt-2 text-xs text-[#E8A0A0]" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

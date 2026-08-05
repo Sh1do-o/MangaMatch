@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { errorMessage, requestJson } from "@/lib/http";
 
 interface Category {
   id: number;
@@ -64,11 +65,10 @@ export default function LibraryPage() {
 
     setDeletingId(id);
     try {
-      const res = await fetch(`/api/manga/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
+      await requestJson(`/api/manga/${id}`, { method: "DELETE" });
       setManga((prev) => prev.filter((m) => m.id !== id));
-    } catch {
-      alert("Failed to delete. Try again.");
+    } catch (err) {
+      alert(`Failed to delete: ${errorMessage(err)}`);
     } finally {
       setDeletingId(null);
     }
@@ -77,12 +77,12 @@ export default function LibraryPage() {
   useEffect(() => {
     async function loadLibrary() {
       try {
-        const res = await fetch("/api/manga/list");
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Failed to load");
-        setManga(data.manga);
+        const data = await requestJson<{ manga?: SavedManga[] }>(
+          "/api/manga/list"
+        );
+        setManga(data.manga ?? []);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Something went wrong");
+        setError(errorMessage(err));
       } finally {
         setLoading(false);
       }
@@ -93,11 +93,14 @@ export default function LibraryPage() {
 
   async function loadCategories() {
     try {
-      const res = await fetch("/api/categories");
-      const data = await res.json();
+      const data = await requestJson<{ categories?: Category[] }>(
+        "/api/categories"
+      );
       setAllCategoryObjs(data.categories ?? []);
-    } catch {
-      // non-critical, category chips on cards still work without this
+    } catch (err) {
+      // Non-critical — category chips on cards still work without this list,
+      // so this doesn't block the page, but it is logged rather than dropped.
+      console.error("Failed to load categories:", err);
     }
   }
 
@@ -106,8 +109,7 @@ export default function LibraryPage() {
 
     setDeletingCategoryId(id);
     try {
-      const res = await fetch(`/api/categories/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
+      await requestJson(`/api/categories/${id}`, { method: "DELETE" });
       setAllCategoryObjs((prev) => prev.filter((c) => c.id !== id));
       setManga((prev) =>
         prev.map((m) => ({
@@ -118,8 +120,8 @@ export default function LibraryPage() {
       if (categoryFilter === allCategoryObjs.find((c) => c.id === id)?.name) {
         setCategoryFilter("All");
       }
-    } catch {
-      alert("Failed to delete category. Try again.");
+    } catch (err) {
+      alert(`Failed to delete category: ${errorMessage(err)}`);
     } finally {
       setDeletingCategoryId(null);
     }

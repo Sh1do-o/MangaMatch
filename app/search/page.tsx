@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { MangaResult, BrowseSort } from "@/lib/anilist";
+import { errorMessage, requestJson } from "@/lib/http";
 
 const BROWSE_TABS: { value: BrowseSort; label: string }[] = [
   { value: "trending", label: "🔥 Trending Now" },
@@ -43,12 +44,17 @@ export default function SearchPage() {
   const [pendingManga, setPendingManga] = useState<MangaResult | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [confirmingAdd, setConfirmingAdd] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/categories")
-      .then((r) => r.json())
+    requestJson<{ categories?: Category[] }>("/api/categories")
       .then((data) => setCategories(data.categories ?? []))
-      .catch(() => setCategories([]));
+      .catch((err) => {
+        setCategories([]);
+        // Non-fatal: a manga can still be added without a category, but the
+        // failure is logged rather than discarded outright.
+        console.error("Failed to load categories:", err);
+      });
   }, []);
 
   const [browseTab, setBrowseTab] = useState<BrowseSort>("trending");
@@ -69,13 +75,13 @@ export default function SearchPage() {
     const params = new URLSearchParams({ sort: browseTab });
     if (browseGenre !== "All") params.set("genre", browseGenre);
 
-    fetch(`/api/manga/trending?${params.toString()}`)
-      .then((r) => r.json())
+    requestJson<{ results?: MangaResult[] }>(
+      `/api/manga/trending?${params.toString()}`
+    )
       .then((data) => {
-        if (data.error) throw new Error(data.details || data.error);
         setBrowseCache((prev) => ({ ...prev, [browseKey]: data.results ?? [] }));
       })
-      .catch((err) => setBrowseError(err.message ?? "Failed to load"))
+      .catch((err) => setBrowseError(errorMessage(err)))
       .finally(() => setBrowseLoading(false));
   }, [browseKey, browseCache, browseTab, browseGenre]);
 
@@ -88,18 +94,12 @@ export default function SearchPage() {
     setHasSearched(true);
 
     try {
-      const res = await fetch(
+      const data = await requestJson<{ results?: MangaResult[] }>(
         `/api/manga/search?q=${encodeURIComponent(query)}`
       );
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.details || data.error || "Search failed");
-      }
-
-      setResults(data.results);
+      setResults(data.results ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(errorMessage(err));
       setResults([]);
     } finally {
       setLoading(false);
@@ -109,6 +109,7 @@ export default function SearchPage() {
   function openAddModal(manga: MangaResult) {
     setPendingManga(manga);
     setSelectedCategoryId(null);
+    setAddError(null);
   }
 
   async function confirmAdd() {
@@ -116,33 +117,38 @@ export default function SearchPage() {
     const manga = pendingManga;
 
     setConfirmingAdd(true);
+    setAddError(null);
     setAddedIds((prev) => new Set(prev).add(manga.malId));
 
     try {
-      const res = await fetch("/api/manga/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(manga),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error();
+      const data = await requestJson<{ manga?: { id: number } }>(
+        "/api/manga/add",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(manga),
+        }
+      );
 
+      // The category assignment is a separate request, and its result used
+      // to be ignored — the manga would appear added but uncategorised.
       if (selectedCategoryId && data.manga?.id) {
-        await fetch(`/api/manga/${data.manga.id}/categories`, {
+        await requestJson(`/api/manga/${data.manga.id}/categories`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ categoryId: selectedCategoryId }),
         });
       }
-    } catch {
+      setPendingManga(null);
+    } catch (err) {
       setAddedIds((prev) => {
         const next = new Set(prev);
         next.delete(manga.malId);
         return next;
       });
+      setAddError(errorMessage(err));
     } finally {
       setConfirmingAdd(false);
-      setPendingManga(null);
     }
   }
 
@@ -395,6 +401,15 @@ export default function SearchPage() {
                   </button>
                 ))}
               </div>
+            )}
+
+            {addError && (
+              <p
+                className="mb-4 rounded-xl border border-[#4A2A2A] bg-[#1A0F0F] px-4 py-3 text-xs text-[#E8A0A0]"
+                role="alert"
+              >
+                {addError}
+              </p>
             )}
 
             <div className="flex gap-3">

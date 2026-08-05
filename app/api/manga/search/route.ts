@@ -2,6 +2,7 @@
 // Searches manga via the AniList API.
 import { NextRequest, NextResponse } from "next/server";
 import { searchManga } from "@/lib/anilist";
+import { errorResponse } from "@/lib/api";
 
 export async function GET(req: NextRequest) {
   const query = req.nextUrl.searchParams.get("q");
@@ -17,11 +18,8 @@ export async function GET(req: NextRequest) {
     const results = await searchManga(query);
     return NextResponse.json({ query, results });
   } catch (err) {
-    console.error(err);
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json(
-      { error: "Failed to fetch from Jikan API", details: message },
-      { status: 500 }
-    );
+    return errorResponse(err, {
+      fallback: "Failed to fetch from the AniList API",
+    });
   }
 }
