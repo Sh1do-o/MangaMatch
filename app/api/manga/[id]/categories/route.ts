@@ -14,9 +14,11 @@ async function readCategoryId(req: Request): Promise<number> {
   return parseIdParam(String(categoryId), "categoryId");
 }
 
-export async function POST(
+/** Connects or disconnects a category on a manga and returns the fresh row. */
+async function updateCategoryLink(
   req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  params: IdRouteContext["params"],
+  action: "connect" | "disconnect"
 ) {
   try {
     const { id } = await params;

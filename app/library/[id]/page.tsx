@@ -5,6 +5,12 @@ import CategoryManager from "@/components/CategoryManager";
 import ReadingStatusEditor from "@/components/ReadingStatusEditor";
 import DeleteMangaButton from "@/components/DeleteMangaButton";
 import RatingEditor from "@/components/RatingEditor";
+import AmbientBackground from "@/components/AmbientBackground";
+import CoverImage from "@/components/CoverImage";
+import Chip from "@/components/Chip";
+import DividerLabel from "@/components/DividerLabel";
+import { parseList } from "@/lib/manga";
+import { LABEL } from "@/lib/ui";
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "Unknown";
@@ -30,8 +36,8 @@ export default async function MangaDetailPage({
 
   if (!manga) notFound();
 
-  const genres = manga.genres.split(",").filter(Boolean);
-  const authors = manga.authors?.split(",").filter(Boolean) ?? [];
+  const genres = parseList(manga.genres);
+  const authors = parseList(manga.authors);
 
   const metadata = [
     { label: "Author", value: authors.length > 0 ? authors.join(", ") : "Unknown" },
@@ -45,11 +51,10 @@ export default async function MangaDetailPage({
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#0B1220] text-[#F5F5F0]">
-      {/* Ambient background blobs */}
-      <div className="pointer-events-none fixed inset-0 -z-10">
-        <div className="animate-drift absolute -top-32 left-1/4 h-[500px] w-[500px] rounded-full bg-[#E8C77E]/5 blur-[120px]" />
-        <div className="animate-drift absolute -bottom-40 right-1/4 h-[400px] w-[400px] rounded-full bg-[#1E2C42]/30 blur-[100px]" style={{ animationDelay: "-6s" }} />
-      </div>
+      <AmbientBackground
+        primary="-top-32 left-1/4 h-[500px] w-[500px] blur-[120px]"
+        secondary="-bottom-40 right-1/4 h-[400px] w-[400px] blur-[100px]"
+      />
 
       <div className="relative mx-auto max-w-6xl px-6 py-16">
         {/* Back link – now a subtle floating pill */}
@@ -69,18 +74,11 @@ export default async function MangaDetailPage({
               {/* Subtle gold ring on hover */}
               <div className="absolute inset-0 rounded-2xl ring-1 ring-[#E8C77E]/10 transition-all duration-500 group-hover:ring-[#E8C77E]/30" />
               <div className="relative aspect-[2/3] w-full overflow-hidden rounded-2xl">
-                {manga.coverUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={manga.coverUrl}
-                    alt={manga.title}
-                    className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-xs text-[#8CA0BE]">
-                    No cover
-                  </div>
-                )}
+                <CoverImage
+                  src={manga.coverUrl}
+                  alt={manga.title}
+                  imgClassName="transition-transform duration-700 group-hover:scale-105"
+                />
                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0B1220]/80 via-[#0B1220]/20 to-transparent" />
               </div>
             </div>
@@ -108,9 +106,7 @@ export default async function MangaDetailPage({
               className="animate-fade-in-up hidden rounded-2xl border border-dashed border-[#1E2C42] p-5 lg:block"
               style={{ animationDelay: "0.2s" }}
             >
-              <p className="font-mono text-[10px] uppercase tracking-wide text-[#8CA0BE]">
-                Reading Progress
-              </p>
+              <p className={LABEL}>Reading Progress</p>
               <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#1E2C42]">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-[#E8C77E]/80 to-[#E8C77E]"
@@ -149,19 +145,15 @@ export default async function MangaDetailPage({
                 className="animate-fade-in-up mb-8"
                 style={{ animationDelay: "0.15s" }}
               >
-                <div className="mb-3 flex items-center gap-3">
-                  <span className="h-px flex-1 bg-gradient-to-r from-transparent via-[#E8C77E]/40 to-transparent" />
-                  <span className="font-mono text-[10px] uppercase tracking-wide text-[#8CA0BE]">Genres</span>
-                  <span className="h-px flex-1 bg-gradient-to-r from-transparent via-[#E8C77E]/40 to-transparent" />
-                </div>
+                <DividerLabel className={LABEL}>Genres</DividerLabel>
                 <div className="flex flex-wrap justify-center gap-2">
                   {genres.map((genre) => (
-                    <span
+                    <Chip
                       key={genre}
-                      className="rounded-full border border-[#E8C77E]/20 bg-[#E8C77E]/5 px-3 py-1 font-mono text-[11px] uppercase tracking-wide text-[#E8C77E] backdrop-blur-sm transition-all duration-200 hover:border-[#E8C77E]/50 hover:bg-[#E8C77E]/10"
+                      className="px-3 py-1 text-[11px] transition-all duration-200 hover:border-[#E8C77E]/50 hover:bg-[#E8C77E]/10"
                     >
                       {genre}
-                    </span>
+                    </Chip>
                   ))}
                 </div>
               </div>
@@ -174,9 +166,7 @@ export default async function MangaDetailPage({
             >
               {metadata.map((item) => (
                 <div key={item.label}>
-                  <p className="font-mono text-[10px] uppercase tracking-wide text-[#8CA0BE]">
-                    {item.label}
-                  </p>
+                  <p className={LABEL}>{item.label}</p>
                   <p className="mt-1 text-sm font-medium">{item.value}</p>
                 </div>
               ))}

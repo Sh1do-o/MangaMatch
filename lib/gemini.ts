@@ -45,7 +45,7 @@ function buildPrompt(
 
   if (filters.genres.length > 0) {
     parts.push(
-      `Preferred genres: ${filters.genres.join(", ")}. Favor candidates matching several of these, but don't treat this as a strict requirement — a great pick matching fewer genres is better than a mediocre pick matching all of them.`
+      `Preferred genres/themes: ${filters.genres.join(", ")}. Every candidate below already matches at least one of these (some are AniList themes rather than genres, so they won't always appear in a candidate's listed genres). Favor candidates matching several of them, but don't treat that as a strict requirement — a great pick matching fewer is better than a mediocre pick matching all of them.`
     );
   }
   if (filters.completionStatus !== "any") {

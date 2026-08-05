@@ -1,6 +1,7 @@
 // GET  /api/categories        -> list all categories
 // POST /api/categories        -> create a new category { name, color? }
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { HttpError, errorResponse, parseJsonBody } from "@/lib/api";
 

@@ -2,6 +2,7 @@
 // Saves a manga (picked from search results) into the local database.
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { badRequest, serverError } from "@/lib/api";
 import type { MangaResult } from "@/lib/anilist";
 import { HttpError, errorResponse, parseJsonBody } from "@/lib/api";
 

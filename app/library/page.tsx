@@ -128,7 +128,7 @@ export default function LibraryPage() {
   }
 
   const allGenres = Array.from(
-    new Set(manga.flatMap((m) => m.genres.split(",").filter(Boolean)))
+    new Set(manga.flatMap((m) => parseList(m.genres)))
   ).sort();
 
   const allCategories = Array.from(
@@ -176,29 +176,17 @@ export default function LibraryPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#0B1220] text-[#F5F5F0]">
-      {/* Ambient background blobs */}
-      <div className="pointer-events-none fixed inset-0 -z-10">
-        <div className="animate-drift absolute -top-32 left-1/3 h-[450px] w-[450px] rounded-full bg-[#E8C77E]/5 blur-[130px]" />
-        <div className="animate-drift absolute -bottom-40 right-1/4 h-[400px] w-[400px] rounded-full bg-[#1E2C42]/30 blur-[100px]" style={{ animationDelay: "-6s" }} />
-      </div>
+      <AmbientBackground
+        primary="-top-32 left-1/3 h-[450px] w-[450px] blur-[130px]"
+        secondary="-bottom-40 right-1/4 h-[400px] w-[400px] blur-[100px]"
+      />
 
       <div className="mx-auto max-w-6xl px-6 py-16">
-        {/* Header with decorative gold lines */}
-        <div className="animate-fade-in-up mb-12 border-b border-[#1E2C42] pb-10">
-          <div className="mb-3 flex items-center gap-3">
-            <span className="h-px flex-1 bg-gradient-to-r from-transparent via-[#E8C77E]/40 to-transparent" />
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-[#E8C77E]">
-              Library
-            </p>
-            <span className="h-px flex-1 bg-gradient-to-r from-transparent via-[#E8C77E]/40 to-transparent" />
-          </div>
-          <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold tracking-tight lg:text-5xl">
-            <span className="text-gradient-gold">Your collection</span>
-          </h1>
-          <p className="mt-4 max-w-lg text-sm text-[#8CA0BE]">
-            {manga.length} manga saved
-          </p>
-        </div>
+        <PageHeader
+          eyebrow="Library"
+          title="Your collection"
+          description={`${manga.length} manga saved`}
+        />
 
         {/* Search bar with icon and glass effect */}
         <div className="animate-fade-in-up mb-8" style={{ animationDelay: "0.05s" }}>
@@ -229,17 +217,13 @@ export default function LibraryPage() {
         {allGenres.length > 0 && (
           <div className="animate-fade-in-up mb-3 flex flex-wrap gap-2" style={{ animationDelay: "0.1s" }}>
             {["All", ...allGenres].map((genre) => (
-              <button
+              <TogglePill
                 key={genre}
+                active={genreFilter === genre}
                 onClick={() => setGenreFilter(genre)}
-                className={`rounded-full border px-3.5 py-1.5 font-mono text-xs uppercase tracking-wide transition-all duration-200 ${
-                  genreFilter === genre
-                    ? "border-[#F5F5F0] bg-[#F5F5F0] text-[#0B1220]"
-                    : "border-[#1E2C42] text-[#8CA0BE] hover:border-[#F5F5F0]/40 hover:text-[#F5F5F0]"
-                }`}
               >
                 {genre}
-              </button>
+              </TogglePill>
             ))}
           </div>
         )}
@@ -248,49 +232,25 @@ export default function LibraryPage() {
         {allCategories.length > 0 && (
           <div className="animate-fade-in-up mb-10 flex flex-wrap gap-2" style={{ animationDelay: "0.15s" }}>
             {["All", ...allCategories].map((cat) => (
-              <button
+              <TogglePill
                 key={cat}
+                active={categoryFilter === cat}
                 onClick={() => setCategoryFilter(cat)}
-                className={`rounded-full border px-3.5 py-1.5 font-mono text-xs uppercase tracking-wide transition-all duration-200 ${
-                  categoryFilter === cat
-                    ? "border-[#E8C77E] bg-[#E8C77E] text-[#0B1220]"
-                    : "border-[#1E2C42] text-[#8CA0BE] hover:border-[#E8C77E]/40 hover:text-[#E8C77E]"
-                }`}
+                accent="gold"
               >
                 {cat}
-              </button>
+              </TogglePill>
             ))}
           </div>
         )}
 
-        {/* Loading skeletons */}
-        {loading && (
-          <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="animate-pulse overflow-hidden rounded-xl border-2 border-[#1E2C42] bg-[#0F1B2E]"
-              >
-                <div className="aspect-[2/3] w-full bg-[#1E2C42]" />
-                <div className="space-y-3 p-4">
-                  <div className="h-5 w-3/4 rounded bg-[#1E2C42]" />
-                  <div className="h-4 w-1/2 rounded bg-[#1E2C42]" />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        {loading && <MangaCardSkeletons className="mb-10" />}
 
-        {/* Error state */}
-        {error && (
-          <div className="mb-8 rounded-xl border border-[#4A2A2A] bg-[#1A0F0F] px-4 py-3 text-sm text-[#E8A0A0]">
-            {error}
-          </div>
-        )}
+        {error && <ErrorBanner className="mb-8">{error}</ErrorBanner>}
 
         {/* Empty state */}
         {!loading && !error && manga.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-[#1E2C42] px-6 py-16 text-center">
+          <EmptyState>
             <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full border border-[#1E2C42] bg-[#0F1B2E]">
               <svg className="h-8 w-8 text-[#E8C77E]/60" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
@@ -301,20 +261,18 @@ export default function LibraryPage() {
             </p>
             <a
               href="/search"
-              className="inline-block rounded-full border border-[#F5F5F0] bg-[#F5F5F0] px-6 py-3 text-xs font-semibold uppercase tracking-wide text-[#0B1220] transition-all duration-300 hover:shadow-[0_0_30px_rgba(245,245,240,0.35)]"
+              className={cn(BUTTON_PRIMARY, "inline-block px-6 py-3")}
             >
               Go to Search
             </a>
-          </div>
+          </EmptyState>
         )}
 
         {/* Control bar: sort, view toggle, manage categories */}
         {!loading && !error && manga.length > 0 && (
           <div className="animate-fade-in-up mb-6 flex flex-wrap items-center justify-between gap-3" style={{ animationDelay: "0.18s" }}>
             <div className="flex items-center gap-2">
-              <span className="font-mono text-[10px] uppercase tracking-wide text-[#8CA0BE]">
-                Sort:
-              </span>
+              <span className={LABEL}>Sort:</span>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
@@ -330,34 +288,27 @@ export default function LibraryPage() {
 
             <div className="flex items-center gap-2">
               {allCategoryObjs.length > 0 && (
-                <button
+                <TogglePill
+                  active={false}
                   onClick={() => setManagingCategories(true)}
-                  className="rounded-full border border-[#1E2C42] px-3.5 py-1.5 font-mono text-xs uppercase tracking-wide text-[#8CA0BE] transition-all duration-200 hover:border-[#F5F5F0]/40 hover:text-[#F5F5F0]"
                 >
                   Manage Categories
-                </button>
+                </TogglePill>
               )}
               <div className="flex overflow-hidden rounded-full border border-[#1E2C42]">
-                <button
-                  onClick={() => setViewMode("grid")}
-                  className={`px-3 py-1.5 font-mono text-xs uppercase tracking-wide transition-all duration-200 ${
-                    viewMode === "grid"
-                      ? "bg-[#F5F5F0] text-[#0B1220]"
-                      : "text-[#8CA0BE] hover:text-[#F5F5F0]"
-                  }`}
-                >
-                  Grid
-                </button>
-                <button
-                  onClick={() => setViewMode("list")}
-                  className={`px-3 py-1.5 font-mono text-xs uppercase tracking-wide transition-all duration-200 ${
-                    viewMode === "list"
-                      ? "bg-[#F5F5F0] text-[#0B1220]"
-                      : "text-[#8CA0BE] hover:text-[#F5F5F0]"
-                  }`}
-                >
-                  List
-                </button>
+                {(["grid", "list"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setViewMode(mode)}
+                    className={`px-3 py-1.5 font-mono text-xs uppercase tracking-wide capitalize transition-all duration-200 ${
+                      viewMode === mode
+                        ? "bg-[#F5F5F0] text-[#0B1220]"
+                        : "text-[#8CA0BE] hover:text-[#F5F5F0]"
+                    }`}
+                  >
+                    {mode}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
@@ -366,14 +317,9 @@ export default function LibraryPage() {
         {/* Results grid/list */}
         {!loading && !error && manga.length > 0 && (
           <>
-            {/* Decorative results header */}
-            <div className="animate-fade-in-up mb-6 flex items-center gap-3" style={{ animationDelay: "0.2s" }}>
-              <span className="h-px w-8 bg-gradient-to-r from-[#E8C77E]/40 to-transparent" />
-              <span className="font-mono text-xs uppercase tracking-wide text-[#E8C77E]">
-                {filtered.length} manga
-              </span>
-              <span className="h-px flex-1 bg-[#1E2C42]" />
-            </div>
+            <ResultsHeader style={{ animationDelay: "0.2s" }}>
+              {filtered.length} manga
+            </ResultsHeader>
 
             {viewMode === "grid" ? (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -386,18 +332,11 @@ export default function LibraryPage() {
                   >
                     {/* Cover */}
                     <div className="relative aspect-[2/3] w-full overflow-hidden bg-[#0B1220]">
-                      {m.coverUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={m.coverUrl}
-                          alt={m.title}
-                          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                        />
-                      ) : (
-                        <div className="flex h-full items-center justify-center text-xs text-[#8CA0BE]">
-                          No cover
-                        </div>
-                      )}
+                      <CoverImage
+                        src={m.coverUrl}
+                        alt={m.title}
+                        imgClassName="transition-transform duration-500 group-hover:scale-105"
+                      />
                       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0B1220]/80 via-transparent to-transparent" />
                       {/* Shimmer sweep on hover */}
                       <div className="animate-shimmer absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
@@ -418,7 +357,10 @@ export default function LibraryPage() {
                       <button
                         onClick={(e) => handleDelete(e, m.id)}
                         disabled={deletingId === m.id}
-                        className="absolute left-2 top-2 rounded-full border border-[#E8A0A0]/50 bg-[#0B1220]/90 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide text-[#E8A0A0] backdrop-blur-sm transition-all duration-200 hover:bg-[#E8A0A0] hover:text-[#0B1220] disabled:opacity-50"
+                        className={cn(
+                          BUTTON_DANGER,
+                          "absolute left-2 top-2 bg-[#0B1220]/90 px-2.5 py-1 backdrop-blur-sm"
+                        )}
                       >
                         {deletingId === m.id ? "..." : "✕"}
                       </button>
@@ -433,17 +375,10 @@ export default function LibraryPage() {
                       {/* Genres */}
                       {m.genres && (
                         <div className="flex flex-wrap gap-1.5">
-                          {m.genres
-                            .split(",")
-                            .filter(Boolean)
+                          {parseList(m.genres)
                             .slice(0, 3)
                             .map((genre) => (
-                              <span
-                                key={genre}
-                                className="rounded-full border border-[#E8C77E]/20 bg-[#E8C77E]/5 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[#E8C77E] backdrop-blur-sm"
-                              >
-                                {genre}
-                              </span>
+                              <Chip key={genre}>{genre}</Chip>
                             ))}
                         </div>
                       )}
@@ -452,12 +387,9 @@ export default function LibraryPage() {
                       {m.categories.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
                           {m.categories.map((cat) => (
-                            <span
-                              key={cat.id}
-                              className="rounded-full border border-[#F5F5F0]/20 bg-[#F5F5F0]/5 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[#F5F5F0] backdrop-blur-sm"
-                            >
+                            <Chip key={cat.id} accent="light">
                               {cat.name}
-                            </span>
+                            </Chip>
                           ))}
                         </div>
                       )}
@@ -487,18 +419,15 @@ export default function LibraryPage() {
                     className="animate-fade-in-up group flex cursor-pointer items-center gap-4 rounded-xl border-2 border-[#1E2C42] bg-[#0F1B2E] p-3 transition-all duration-200 hover:border-[#E8C77E]/40"
                   >
                     <div className="relative aspect-[2/3] w-12 flex-shrink-0 self-start overflow-hidden rounded-md bg-[#0B1220]">
-                      {m.coverUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={m.coverUrl}
-                          alt={m.title}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-full items-center justify-center text-[8px] text-[#8CA0BE]">
-                          N/A
-                        </div>
-                      )}
+                      <CoverImage
+                        src={m.coverUrl}
+                        alt={m.title}
+                        fallback={
+                          <div className="flex h-full items-center justify-center text-[8px] text-[#8CA0BE]">
+                            N/A
+                          </div>
+                        }
+                      />
                     </div>
 
                     <div className="min-w-0 flex-1">
@@ -519,7 +448,7 @@ export default function LibraryPage() {
                     <button
                       onClick={(e) => handleDelete(e, m.id)}
                       disabled={deletingId === m.id}
-                      className="flex-shrink-0 rounded-full border border-[#E8A0A0]/50 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide text-[#E8A0A0] transition-all duration-200 hover:bg-[#E8A0A0] hover:text-[#0B1220] disabled:opacity-50"
+                      className={cn(BUTTON_DANGER, "flex-shrink-0 px-2.5 py-1")}
                     >
                       {deletingId === m.id ? "..." : "✕"}
                     </button>
@@ -533,11 +462,8 @@ export default function LibraryPage() {
 
       {/* Manage categories modal */}
       {managingCategories && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6 backdrop-blur-sm">
-          <div className="animate-fade-in-up w-full max-w-sm rounded-2xl border-2 border-[#1E2C42] bg-[#0F1B2E] p-6 shadow-2xl">
-            <h3 className="mb-4 font-[family-name:var(--font-display)] text-lg font-semibold text-[#F5F5F0]">
-              Manage Categories
-            </h3>
+        <Modal title="Manage Categories">
+          <div className="mt-2">
             <div className="mb-6 flex max-h-64 flex-col gap-2 overflow-y-auto">
               {allCategoryObjs.map((cat) => (
                 <div
@@ -548,7 +474,7 @@ export default function LibraryPage() {
                   <button
                     onClick={() => handleDeleteCategory(cat.id)}
                     disabled={deletingCategoryId === cat.id}
-                    className="rounded-full border border-[#E8A0A0]/50 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide text-[#E8A0A0] transition-all duration-200 hover:bg-[#E8A0A0] hover:text-[#0B1220] disabled:opacity-50"
+                    className={cn(BUTTON_DANGER, "px-2.5 py-1")}
                   >
                     {deletingCategoryId === cat.id ? "..." : "Delete"}
                   </button>
@@ -560,12 +486,12 @@ export default function LibraryPage() {
             </div>
             <button
               onClick={() => setManagingCategories(false)}
-              className="w-full rounded-full border border-[#1E2C42] px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-[#8CA0BE] transition-all duration-300 hover:border-[#F5F5F0]/40 hover:text-[#F5F5F0]"
+              className={cn(BUTTON_SECONDARY, "w-full px-4 py-2.5")}
             >
               Close
             </button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

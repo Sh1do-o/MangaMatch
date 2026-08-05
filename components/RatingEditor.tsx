@@ -39,7 +39,7 @@ export default function RatingEditor({
 
   return (
     <div>
-      <p className="mb-2 font-mono text-[10px] uppercase tracking-wide text-[#8CA0BE]">
+      <p className={`mb-2 ${LABEL}`}>
         Your Rating {rating !== null && (
           <span className="text-[#E8C77E]">— {rating}/10</span>
         )}
@@ -52,11 +52,11 @@ export default function RatingEditor({
               key={n}
               onClick={() => updateRating(n)}
               disabled={busy}
-              className={`flex h-9 w-9 items-center justify-center rounded-full border font-mono text-xs transition-all duration-200 disabled:opacity-50 ${
-                isFilled
-                  ? "border-[#E8C77E] bg-[#E8C77E] text-[#0B1220] shadow-[0_0_8px_rgba(232,199,126,0.3)]"
-                  : "border-[#1E2C42] text-[#8CA0BE] hover:border-[#E8C77E]/50 hover:text-[#E8C77E]"
-              }`}
+              className={cn(
+                pillClass(isFilled, "gold"),
+                "flex h-9 w-9 items-center justify-center text-xs",
+                isFilled && "shadow-[0_0_8px_rgba(232,199,126,0.3)]"
+              )}
             >
               {n}
             </button>

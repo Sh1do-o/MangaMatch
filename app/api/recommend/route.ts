@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
       }
       baseManga = mangaList.map((manga) => ({
         title: manga.title,
-        genres: manga.genres.split(",").filter(Boolean),
+        genres: parseList(manga.genres),
         synopsis: manga.synopsis,
       }));
       baseMangaMalIds = mangaList.map((manga) => manga.malId);
@@ -118,11 +118,14 @@ export async function POST(req: NextRequest) {
       )
     );
 
-    // Broad candidate pool — only completion status is a hard filter here
+    // Candidate pool — one query per selected genre/tag, so genre acts as
+    // "any of these"; only completion status is a hard filter. `page` lets
+    // "Suggest More" reach past the first batch instead of re-ranking the
+    // same candidates until they're all excluded.
     const rawPool = await getCandidatePool({
       genres,
       completionStatus,
-      chapterLength,
+      page,
     });
 
     let pool: MangaResult[] = [...rawPool];
@@ -168,7 +171,10 @@ export async function POST(req: NextRequest) {
     if (pool.length === 0) {
       return NextResponse.json({
         recommendations: [],
-        note: "No manga matched these filters. Try loosening completion status or chapter length.",
+        note:
+          page > 1
+            ? "You've seen everything that matches these filters. Try loosening them or starting over."
+            : "No manga matched these filters. Try loosening completion status or chapter length.",
       });
     }
 
@@ -204,7 +210,7 @@ export async function POST(req: NextRequest) {
         status: match.status,
         siteUrl: match.siteUrl,
       };
-    }); 
+    });
 
     return NextResponse.json({ recommendations });
   } catch (err) {

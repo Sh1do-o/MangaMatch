@@ -1,5 +1,9 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import AmbientBackground from "@/components/AmbientBackground";
+import CoverImage from "@/components/CoverImage";
+import EmptyState from "@/components/EmptyState";
+import { cn, BUTTON_PRIMARY } from "@/lib/ui";
 
 export default async function HomePage() {
   const recentManga = await prisma.manga.findMany({
@@ -9,11 +13,10 @@ export default async function HomePage() {
 
   return (
     <div className="relative min-h-[calc(100vh-65px)] overflow-hidden bg-[#0B1220] text-[#F5F5F0]">
-      {/* Ambient background blobs */}
-      <div className="pointer-events-none fixed inset-0 -z-10">
-        <div className="animate-drift absolute -top-32 left-1/3 h-[600px] w-[600px] rounded-full bg-[#E8C77E]/5 blur-[150px]" />
-        <div className="animate-drift absolute -bottom-40 right-1/4 h-[500px] w-[500px] rounded-full bg-[#1E2C42]/30 blur-[120px]" style={{ animationDelay: "-6s" }} />
-      </div>
+      <AmbientBackground
+        primary="-top-32 left-1/3 h-[600px] w-[600px] blur-[150px]"
+        secondary="-bottom-40 right-1/4 h-[500px] w-[500px] blur-[120px]"
+      />
 
       {/* Hero */}
       <div className="relative overflow-hidden border-b border-[#1E2C42] px-6 py-28">
@@ -70,7 +73,7 @@ export default async function HomePage() {
           >
             <Link
               href="/library"
-              className="group relative rounded-full border border-[#F5F5F0] bg-[#F5F5F0] px-7 py-3.5 text-xs font-semibold uppercase tracking-wide text-[#0B1220] transition-all duration-300 hover:shadow-[0_0_30px_rgba(245,245,240,0.35)] active:scale-95"
+              className={cn(BUTTON_PRIMARY, "group relative px-7 py-3.5")}
             >
               View Library
             </Link>
@@ -111,18 +114,16 @@ export default async function HomePage() {
                   style={{ animationDelay: `${i * 0.08}s` }}
                   className="animate-fade-in-up group relative aspect-[2/3] overflow-hidden rounded-xl border-2 border-[#1E2C42] bg-[#0F1B2E] shadow-lg transition-all duration-300 hover:-translate-y-1 hover:border-[#E8C77E]/50 hover:shadow-[0_10px_40px_rgba(232,199,126,0.2)]"
                 >
-                  {m.coverUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={m.coverUrl}
-                      alt={m.title}
-                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center px-2 text-center font-mono text-[9px] uppercase tracking-wide text-[#8CA0BE]">
-                      {m.title}
-                    </div>
-                  )}
+                  <CoverImage
+                    src={m.coverUrl}
+                    alt={m.title}
+                    imgClassName="transition-transform duration-500 group-hover:scale-105"
+                    fallback={
+                      <div className="flex h-full items-center justify-center px-2 text-center font-mono text-[9px] uppercase tracking-wide text-[#8CA0BE]">
+                        {m.title}
+                      </div>
+                    }
+                  />
                   {/* Gradient overlay on hover */}
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0B1220]/80 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                   {/* Shimmer sweep */}
@@ -132,17 +133,17 @@ export default async function HomePage() {
             </div>
           </>
         ) : (
-          <div className="rounded-2xl border border-dashed border-[#1E2C42] px-6 py-16 text-center">
+          <EmptyState>
             <p className="mb-4 text-sm text-[#8CA0BE]">
               Your library is empty. Search for manga to get started.
             </p>
             <Link
               href="/search"
-              className="inline-block rounded-full border border-[#F5F5F0] bg-[#F5F5F0] px-6 py-3 text-xs font-semibold uppercase tracking-wide text-[#0B1220] transition-all duration-300 hover:shadow-[0_0_30px_rgba(245,245,240,0.35)]"
+              className={cn(BUTTON_PRIMARY, "inline-block px-6 py-3")}
             >
               Go to Search
             </Link>
-          </div>
+          </EmptyState>
         )}
       </div>
 

@@ -8,10 +8,7 @@ export async function GET(req: NextRequest) {
   const query = req.nextUrl.searchParams.get("q");
 
   if (!query) {
-    return NextResponse.json(
-      { error: "Missing query parameter 'q'" },
-      { status: 400 }
-    );
+    return badRequest("Missing query parameter 'q'");
   }
 
   try {

@@ -11,10 +11,7 @@ export async function GET(req: NextRequest) {
   const genre = req.nextUrl.searchParams.get("genre") ?? undefined;
 
   if (!VALID_SORTS.includes(sortParam as BrowseSort)) {
-    return NextResponse.json(
-      { error: `sort must be one of: ${VALID_SORTS.join(", ")}` },
-      { status: 400 }
-    );
+    return badRequest(`sort must be one of: ${VALID_SORTS.join(", ")}`);
   }
 
   try {
