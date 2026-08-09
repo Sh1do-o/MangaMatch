@@ -237,7 +237,7 @@ export async function getMediaRecommendations(
     const nodes = data?.Media?.recommendations?.nodes ?? [];
     return nodes
       .map((n) => n.mediaRecommendation)
-      .filter((m): m is AniListMedia => m !== null)
+      .filter((m): m is AniListMedia => m != null)
       .map(mapMediaToResult);
   } catch {
     return [];

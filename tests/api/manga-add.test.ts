@@ -46,14 +46,14 @@ afterEach(() => {
 
 describe("POST /api/manga/add", () => {
   it.each([
-    ["malId", { title: "Berserk" }],
-    ["title", { malId: 1 }],
+    ["malId", { title: "Berserk", genres: [], authors: [] }],
+    ["title", { malId: 1, genres: [], authors: [] }],
   ])("400s when %s is missing", async (_field, body) => {
     const res = await POST(postRequest(body));
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
-      error: "Missing required fields: malId, title",
+      error: "Invalid or missing fields: malId, title, genres, authors",
     });
     expect(upsert).not.toHaveBeenCalled();
   });

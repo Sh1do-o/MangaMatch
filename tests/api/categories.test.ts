@@ -70,7 +70,9 @@ describe("POST /api/categories", () => {
       const res = await POST(postRequest(body));
 
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "Missing 'name'" });
+      expect(await res.json()).toEqual({
+        error: "'name' must be a non-empty string of at most 500 characters",
+      });
       expect(create).not.toHaveBeenCalled();
     }
   );
