@@ -15,31 +15,9 @@ import {
   type MangaResult,
 } from "@/lib/anilist";
 import { prisma } from "@/lib/db";
-
-function matchesCompletionStatus(
-  status: string | null,
-  completionStatus: string
-): boolean {
-  if (completionStatus === "any" || !status) return true;
-  if (completionStatus === "completed") return status === "FINISHED";
-  if (completionStatus === "ongoing")
-    return status === "RELEASING" || status === "HIATUS";
-  return true;
-}
-
-function matchesChapterLength(
-  chapters: number | null,
-  chapterLength: string
-): boolean {
-  // Unknown chapter counts are treated as a pass, not a fail — AniList
-  // frequently doesn't track an exact count for ongoing series, and
-  // excluding those would wipe out otherwise perfectly good candidates.
-  if (chapterLength === "any" || chapters === null) return true;
-  if (chapterLength === "short") return chapters < 100;
-  if (chapterLength === "medium") return chapters >= 100 && chapters <= 400;
-  if (chapterLength === "long") return chapters > 400;
-  return true;
-}
+import { serverError } from "@/lib/api";
+import { parseList } from "@/lib/manga";
+import { matchesChapterLength, matchesCompletionStatus } from "@/lib/filters";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -65,7 +43,7 @@ export async function POST(req: NextRequest) {
       });
       baseManga = mangaList.map((manga) => ({
         title: manga.title,
-        genres: manga.genres.split(",").filter(Boolean),
+        genres: parseList(manga.genres),
         synopsis: manga.synopsis,
       }));
       baseMangaMalIds = mangaList.map((manga) => manga.malId);
@@ -171,11 +149,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ recommendations });
   } catch (err) {
-    console.error(err);
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json(
-      { error: "Failed to generate recommendations", details: message },
-      { status: 500 }
-    );
+    return serverError(err, "Failed to generate recommendations", true);
   }
 }

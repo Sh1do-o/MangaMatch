@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { deleteManga } from "@/lib/api-client";
+import { cn, BUTTON_DANGER } from "@/lib/ui";
 
 export default function DeleteMangaButton({ mangaId }: { mangaId: number }) {
   const router = useRouter();
@@ -11,8 +13,7 @@ export default function DeleteMangaButton({ mangaId }: { mangaId: number }) {
   async function handleDelete() {
     setDeleting(true);
     try {
-      const res = await fetch(`/api/manga/${mangaId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
+      await deleteManga(mangaId);
       router.push("/library");
       router.refresh();
     } catch {
@@ -28,7 +29,10 @@ export default function DeleteMangaButton({ mangaId }: { mangaId: number }) {
         <button
           onClick={handleDelete}
           disabled={deleting}
-          className="rounded-full border border-[#E8A0A0]/60 px-4 py-2 font-mono text-[10px] uppercase tracking-wide text-[#E8A0A0] transition-all duration-200 hover:bg-[#E8A0A0] hover:text-[#0B1220] hover:shadow-[0_0_15px_rgba(232,160,160,0.3)] disabled:opacity-50"
+          className={cn(
+            BUTTON_DANGER,
+            "px-4 py-2 hover:shadow-[0_0_15px_rgba(232,160,160,0.3)]"
+          )}
         >
           {deleting ? "Removing..." : "Confirm"}
         </button>

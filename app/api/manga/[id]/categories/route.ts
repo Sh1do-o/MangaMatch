@@ -2,49 +2,39 @@
 // DELETE /api/manga/[id]/categories  -> { categoryId } remove manga from category
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { serverError, type IdRouteContext } from "@/lib/api";
 
-export async function POST(
+/** Connects or disconnects a category on a manga and returns the fresh row. */
+async function updateCategoryLink(
   req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  params: IdRouteContext["params"],
+  action: "connect" | "disconnect"
 ) {
   const { id } = await params;
   const { categoryId } = await req.json();
 
+  const link = { id: Number(categoryId) };
+
   try {
     const manga = await prisma.manga.update({
       where: { id: Number(id) },
-      data: { categories: { connect: { id: Number(categoryId) } } },
+      data: {
+        categories:
+          action === "connect" ? { connect: link } : { disconnect: link },
+      },
       include: { categories: true },
     });
     return NextResponse.json({ success: true, manga });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json(
-      { error: "Failed to add category" },
-      { status: 500 }
-    );
+    const verb = action === "connect" ? "add" : "remove";
+    return serverError(err, `Failed to ${verb} category`);
   }
 }
 
-export async function DELETE(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
-  const { categoryId } = await req.json();
+export function POST(req: Request, { params }: IdRouteContext) {
+  return updateCategoryLink(req, params, "connect");
+}
 
-  try {
-    const manga = await prisma.manga.update({
-      where: { id: Number(id) },
-      data: { categories: { disconnect: { id: Number(categoryId) } } },
-      include: { categories: true },
-    });
-    return NextResponse.json({ success: true, manga });
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json(
-      { error: "Failed to remove category" },
-      { status: 500 }
-    );
-  }
+export function DELETE(req: Request, { params }: IdRouteContext) {
+  return updateCategoryLink(req, params, "disconnect");
 }
