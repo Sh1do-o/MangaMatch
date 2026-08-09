@@ -2,6 +2,7 @@
 // Docs: https://docs.anilist.co/
 // Official first-party API for AniList.co — no auth needed for public search.
 import { anilistStatusList } from "@/lib/filters";
+import { isGenre } from "@/lib/genres";
 
 export interface MangaResult {
   malId: number; // AniList's own numeric ID (field name kept for compatibility)
@@ -248,21 +249,25 @@ export interface CandidatePoolFilters {
   genres: string[];
   completionStatus: string; // "any" | "ongoing" | "completed"
   chapterLength: string; // "any" | "short" | "medium" | "long"
+  page?: number; // 1-based; bump it to pull a fresh batch instead of re-ranking round 1's leftovers
 }
 
 const ARG_TYPES: Record<string, string> = {
-  genre_in: "[String]",
+  genre: "String",
+  tag_in: "[String]",
   status_in: "[MediaStatus]",
-  chapters_greater: "Int",
-  chapters_lesser: "Int",
   sort: "[MediaSort]",
   startDate_greater: "FuzzyDateInt",
 };
 
+const CANDIDATES_PER_QUERY = 30;
+const MAX_SELECTIONS_QUERIED = 4; // keeps us well inside AniList's rate limit
+const MAX_POOL_SIZE = 60; // caps the prompt size sent to the ranking step
+
 function buildCandidateQuery(activeArgs: string[]): string {
   return `
-query (${activeArgs.map((a) => `$${a}: ${ARG_TYPES[a]}`).join(", ")}) {
-  Page(perPage: 30) {
+query ($page: Int, ${activeArgs.map((a) => `$${a}: ${ARG_TYPES[a]}`).join(", ")}) {
+  Page(page: $page, perPage: ${CANDIDATES_PER_QUERY}) {
     media(
       type: MANGA
       isAdult: false
@@ -278,39 +283,57 @@ query (${activeArgs.map((a) => `$${a}: ${ARG_TYPES[a]}`).join(", ")}) {
 /**
  * Builds a pool of real candidate manga matching the given filters,
  * pulled directly from AniList (not generated from an LLM's memory).
- * Merges a general popularity-sorted batch with a recency-biased batch
- * so newer releases are guaranteed to be represented, since an LLM's
- * own knowledge tends to skew toward older, more famous titles.
  *
- * Genre and chapter-length are intentionally NOT applied as hard
- * server-side filters here:
- * - genre_in requires ALL listed genres simultaneously, not any one —
- *   with several genres selected this narrows the real pool to near
- *   nothing. Genre is instead passed to the ranking step as a soft
- *   preference.
- * - chapters_lesser/greater exclude any manga with an unknown chapter
- *   count (common for ongoing series), so applying it server-side can
- *   wipe out an otherwise good, legitimate pool.
- * Only completion status is applied as a hard filter here, since that
- * field is reliably populated.
+ * Each selected genre/theme gets its own query, and the results are
+ * interleaved. A single genre_in/tag_in query would only match media
+ * carrying ALL the listed values at once, collapsing the pool to near
+ * nothing for more than one selection — one query per selection gives
+ * the "any of these" behaviour the UI implies, and interleaving keeps
+ * every selection represented instead of letting the first one fill
+ * the whole pool. Real AniList genres are queried with `genre`; AniList
+ * *tags* (Isekai, Harem, Seinen, etc.) are queried with `tag_in`, since
+ * `media(genre: "Isekai")` matches nothing — see isGenre() in
+ * lib/genres.ts for which is which.
+ *
+ * Half the requests are recency-restricted (still popularity-sorted, so
+ * they surface recent titles people actually read) so newer releases
+ * are represented, since an LLM's own knowledge skews toward older,
+ * more famous titles.
+ *
+ * Chapter length is intentionally NOT a server-side filter here:
+ * chapters_lesser/greater exclude any manga with an unknown chapter
+ * count (common for ongoing series), so applying it here can wipe out
+ * an otherwise good, legitimate pool. It's applied leniently by the
+ * caller instead. Completion status IS a hard filter, since it's
+ * reliably populated.
  */
 export async function getCandidatePool(
   filters: CandidatePoolFilters
 ): Promise<MangaResult[]> {
   const status = anilistStatusList(filters.completionStatus);
+  const page = Math.max(1, Math.floor(filters.page ?? 1));
 
   const currentYear = new Date().getFullYear();
-  const recentCutoff = (currentYear - 2) * 10000; // e.g. 2023 -> 20230000
+  const recentCutoff = (currentYear - 2) * 10000 + 101; // e.g. 20240101
 
-  function buildRequest(sort: string[], includeRecency: boolean) {
+  function buildRequest(selection: string | null, recentOnly: boolean) {
     const activeArgs = ["sort"];
-    const vars: Record<string, unknown> = { sort };
+    const vars: Record<string, unknown> = { page, sort: ["POPULARITY_DESC"] };
 
+    if (selection) {
+      if (isGenre(selection)) {
+        activeArgs.push("genre");
+        vars.genre = selection;
+      } else {
+        activeArgs.push("tag_in");
+        vars.tag_in = [selection];
+      }
+    }
     if (status) {
       activeArgs.push("status_in");
       vars.status_in = status;
     }
-    if (includeRecency) {
+    if (recentOnly) {
       activeArgs.push("startDate_greater");
       vars.startDate_greater = recentCutoff;
     }
@@ -318,26 +341,37 @@ export async function getCandidatePool(
     return { query: buildCandidateQuery(activeArgs), variables: vars };
   }
 
-  const popularReq = buildRequest(["POPULARITY_DESC"], false);
-  const recentReq = buildRequest(["START_DATE_DESC"], true);
+  const selections = filters.genres.slice(0, MAX_SELECTIONS_QUERIED);
+  const requests =
+    selections.length > 0
+      ? [
+          ...selections.map((s) => buildRequest(s, false)),
+          ...selections.slice(0, 2).map((s) => buildRequest(s, true)),
+        ]
+      : [buildRequest(null, false), buildRequest(null, true)];
 
-  const [popular, recent] = await Promise.all([
-    fetchAniList(popularReq.query, popularReq.variables).catch((err) => {
-      console.error("AniList popular candidate query failed:", err);
-      return [];
-    }),
-    fetchAniList(recentReq.query, recentReq.variables).catch((err) => {
-      console.error("AniList recent candidate query failed:", err);
-      return [];
-    }),
-  ]);
+  const batches = await Promise.all(
+    requests.map((req) =>
+      fetchAniList(req.query, req.variables).catch((err) => {
+        console.error("AniList candidate query failed:", err);
+        return [];
+      })
+    )
+  );
 
   const seen = new Set<number>();
-  const merged = [...recent, ...popular].filter((item) => {
-    if (seen.has(item.id)) return false;
-    seen.add(item.id);
-    return true;
-  });
+  const merged: MangaResult[] = [];
 
-  return merged.map(mapMediaToResult);
+  // Round-robin across batches so no single genre/theme dominates the pool.
+  for (let i = 0; i < CANDIDATES_PER_QUERY; i++) {
+    for (const batch of batches) {
+      const item = batch[i];
+      if (!item || seen.has(item.id)) continue;
+      seen.add(item.id);
+      merged.push(mapMediaToResult(item));
+      if (merged.length >= MAX_POOL_SIZE) return merged;
+    }
+  }
+
+  return merged;
 }
