@@ -240,31 +240,41 @@ describe("getCandidatePool", () => {
     chapterLength: "any",
   };
 
-  it("issues a popularity query and a recency-biased query", async () => {
+  it("issues a popularity query per selection, plus a recency-biased query", async () => {
     await getCandidatePool(baseFilters);
 
+    // One selection ("Action") -> one popularity query + one recency query.
     expect(calls).toHaveLength(2);
     const sorts = calls.map((c) => c.variables.sort);
-    expect(sorts).toEqual(
-      expect.arrayContaining([["POPULARITY_DESC"], ["START_DATE_DESC"]])
-    );
+    expect(sorts).toEqual([["POPULARITY_DESC"], ["POPULARITY_DESC"]]);
 
     const recent = calls.find((c) => "startDate_greater" in c.variables)!;
     const popular = calls.find((c) => !("startDate_greater" in c.variables))!;
-    const expectedCutoff = (new Date().getFullYear() - 2) * 10000;
+    const expectedCutoff = (new Date().getFullYear() - 2) * 10000 + 101;
     expect(recent.variables.startDate_greater).toBe(expectedCutoff);
     expect(recent.query).toContain("$startDate_greater: FuzzyDateInt");
     expect(popular.query).not.toContain("startDate_greater");
   });
 
-  it("never applies genre or chapter length as hard server-side filters", async () => {
+  it("queries each selected genre/theme individually (any-of, not all-of), and never applies chapter length server-side", async () => {
     await getCandidatePool({
-      genres: ["Action", "Romance"],
+      genres: ["Action", "Isekai"],
       completionStatus: "any",
       chapterLength: "short",
     });
 
+    // "Action" is a real genre -> queried via `genre`.
+    // "Isekai" is an AniList tag, not a genre -> queried via `tag_in`.
+    const genreCalls = calls.filter((c) => c.variables.genre === "Action");
+    const tagCalls = calls.filter((c) =>
+      Array.isArray(c.variables.tag_in)
+    );
+    expect(genreCalls.length).toBeGreaterThan(0);
+    expect(tagCalls.length).toBeGreaterThan(0);
+    expect(tagCalls[0].variables.tag_in).toEqual(["Isekai"]);
+
     for (const call of calls) {
+      // genre_in requires matching ALL listed values at once — never used.
       expect(call.variables).not.toHaveProperty("genre_in");
       expect(call.variables).not.toHaveProperty("chapters_lesser");
       expect(call.variables).not.toHaveProperty("chapters_greater");
@@ -293,7 +303,7 @@ describe("getCandidatePool", () => {
     }
   });
 
-  it("merges both batches and de-duplicates by AniList id, recency first", async () => {
+  it("merges both batches and de-duplicates by AniList id, round-robin", async () => {
     fetchMock
       .mockResolvedValueOnce(
         pageResponse([mediaFixture({ id: 1 }), mediaFixture({ id: 2 })])
@@ -304,7 +314,10 @@ describe("getCandidatePool", () => {
 
     const results = await getCandidatePool(baseFilters);
 
-    expect(results.map((r) => r.malId)).toEqual([2, 3, 1]);
+    // Round-robin across batches (popularity query, then recency query),
+    // so no single query dominates the pool: 1 (batch0[0]), 2 (batch1[0],
+    // batch0[1] already seen), 3 (batch1[1]).
+    expect(results.map((r) => r.malId)).toEqual([1, 2, 3]);
   });
 
   it("still returns the other batch when one query fails", async () => {

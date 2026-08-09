@@ -6,6 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import ErrorBanner from "@/components/ErrorBanner";
 import EmptyState from "@/components/EmptyState";
 import Modal from "@/components/Modal";
+import RecommendingModal from "@/components/RecommendingModal";
 import CoverImage from "@/components/CoverImage";
 import Chip from "@/components/Chip";
 import TogglePill from "@/components/TogglePill";
@@ -16,7 +17,7 @@ import {
   COMPLETION_STATUS_OPTIONS,
   CONTENT_RATING_OPTIONS,
 } from "@/lib/filters";
-import { STANDARD_GENRES } from "@/lib/genres";
+import { GENRE_OPTIONS, THEME_OPTIONS, isGenre } from "@/lib/genres";
 import { parseList, toggleSetItem } from "@/lib/manga";
 import type { SavedManga } from "@/lib/types";
 import { cn, BUTTON_PRIMARY, BUTTON_SECONDARY, LABEL } from "@/lib/ui";
@@ -59,13 +60,16 @@ export default function RecommendationsPage() {
       .catch(() => setLibrary([]));
   }, []);
 
-  const allGenres = STANDARD_GENRES;
+  // Library manga only ever carry real AniList genres (never theme tags
+  // like Isekai or Harem), so filtering base candidates by a selected
+  // theme would always come up empty — only genre selections apply here.
+  const selectedLibraryGenres = Array.from(selectedGenres).filter(isGenre);
 
   const baseCandidates =
-    selectedGenres.size === 0
+    selectedLibraryGenres.length === 0
       ? library
       : library.filter((m) =>
-          parseList(m.genres).some((g) => selectedGenres.has(g))
+          parseList(m.genres).some((g) => selectedLibraryGenres.includes(g))
         );
 
   function toggleGenre(genre: string) {
@@ -196,26 +200,29 @@ export default function RecommendationsPage() {
         {/* Step 1: Filters */}
         {step === "filters" && (
           <div className="space-y-8">
-            {/* Genres */}
-            {allGenres.length > 0 && (
-              <div>
-                <p className={`mb-3 ${LABEL}`}>
-                  Genres (select any that apply)
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {allGenres.map((genre) => (
-                    <TogglePill
-                      key={genre}
-                      active={selectedGenres.has(genre)}
-                      onClick={() => toggleGenre(genre)}
-                      accent="gold"
-                    >
-                      {genre}
-                    </TogglePill>
-                  ))}
+            {/* Genres and themes */}
+            <div className="space-y-6">
+              {[
+                { label: "Genres (select any that apply)", values: GENRE_OPTIONS },
+                { label: "Themes (select any that apply)", values: THEME_OPTIONS },
+              ].map((group) => (
+                <div key={group.label}>
+                  <p className={`mb-3 ${LABEL}`}>{group.label}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {group.values.map((genre) => (
+                      <TogglePill
+                        key={genre}
+                        active={selectedGenres.has(genre)}
+                        onClick={() => toggleGenre(genre)}
+                        accent="gold"
+                      >
+                        {genre}
+                      </TogglePill>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
 
             {/* Filter groups with enhanced design */}
             <FilterGroup
@@ -436,6 +443,11 @@ export default function RecommendationsPage() {
           </div>
         )}
       </div>
+
+      {/* Recommending Manga modal — shown while a request is in flight, so
+          the multi-second candidate-pool + Gemini-ranking wait reads as
+          progress instead of the page looking frozen. */}
+      {loading && <RecommendingModal />}
 
       {/* Already Read confirmation modal */}
       {confirmingRec && (
