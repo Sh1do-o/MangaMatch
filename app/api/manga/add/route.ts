@@ -3,34 +3,54 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, serverError } from "@/lib/api";
-import type { MangaResult } from "@/lib/anilist";
+import {
+  MAX_TEXT_LENGTH,
+  MAX_TITLE_LENGTH,
+  parseHttpUrl,
+  parseOptionalInteger,
+  parseOptionalNumber,
+  parseOptionalString,
+  parseString,
+  parseStringArray,
+  readJsonBody,
+} from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
-  const body: MangaResult = await req.json();
+  const body = await readJsonBody(req);
+  if (!body) {
+    return badRequest("Invalid JSON body");
+  }
 
-  if (!body.malId || !body.title) {
-    return badRequest("Missing required fields: malId, title");
+  const malId = parseOptionalInteger(body.malId);
+  const title = parseString(body.title, MAX_TITLE_LENGTH);
+  const genres = parseStringArray(body.genres, MAX_TITLE_LENGTH);
+  const authors = parseStringArray(body.authors, MAX_TITLE_LENGTH);
+
+  if (!malId || !title || !genres || !authors) {
+    return badRequest(
+      "Invalid or missing fields: malId, title, genres, authors"
+    );
   }
 
   try {
     const manga = await prisma.manga.upsert({
-      where: { malId: body.malId },
+      where: { malId },
       update: {}, // if it already exists, do nothing — just confirm success
       create: {
-        malId: body.malId,
-        title: body.title,
-        genres: body.genres.join(","),
-        coverUrl: body.coverUrl,
-        synopsis: body.synopsis,
-        publicationStatus: body.status,
+        malId,
+        title,
+        genres: genres.join(","),
+        coverUrl: parseHttpUrl(body.coverUrl),
+        synopsis: parseOptionalString(body.synopsis, MAX_TEXT_LENGTH),
+        publicationStatus: parseOptionalString(body.status, MAX_TITLE_LENGTH),
         readingStatus: "planning",
-        authors: body.authors?.join(",") ?? null,
-        publishedFrom: body.publishedFrom ?? null,
-        publishedTo: body.publishedTo ?? null,
-        chapters: body.chapters ?? null,
-        volumes: body.volumes ?? null,
-        malScore: body.score ?? null,
-        siteUrl: body.siteUrl ?? null,
+        authors: authors.length > 0 ? authors.join(",") : null,
+        publishedFrom: parseOptionalString(body.publishedFrom, 32),
+        publishedTo: parseOptionalString(body.publishedTo, 32),
+        chapters: parseOptionalInteger(body.chapters),
+        volumes: parseOptionalInteger(body.volumes),
+        malScore: parseOptionalNumber(body.score),
+        siteUrl: parseHttpUrl(body.siteUrl),
       },
     });
 

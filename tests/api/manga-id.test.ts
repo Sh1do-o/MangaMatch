@@ -97,10 +97,11 @@ describe("PATCH /api/manga/[id]", () => {
     });
   });
 
-  it("sends an empty update when no known fields are provided", async () => {
-    await PATCH(patchRequest({}), params);
+  it("400s when no known fields are provided", async () => {
+    const res = await PATCH(patchRequest({}), params);
 
-    expect(update).toHaveBeenCalledWith({ where: { id: 7 }, data: {} });
+    expect(res.status).toBe(400);
+    expect(update).not.toHaveBeenCalled();
   });
 
   it("500s when the update fails", async () => {

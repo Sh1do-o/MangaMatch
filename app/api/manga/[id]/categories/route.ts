@@ -2,7 +2,8 @@
 // DELETE /api/manga/[id]/categories  -> { categoryId } remove manga from category
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { serverError, type IdRouteContext } from "@/lib/api";
+import { badRequest, serverError, type IdRouteContext } from "@/lib/api";
+import { parseId, readJsonBody } from "@/lib/validation";
 
 /** Connects or disconnects a category on a manga and returns the fresh row. */
 async function updateCategoryLink(
@@ -11,13 +12,25 @@ async function updateCategoryLink(
   action: "connect" | "disconnect"
 ) {
   const { id } = await params;
-  const { categoryId } = await req.json();
+  const mangaId = parseId(id);
+  if (!mangaId) {
+    return badRequest("Invalid manga id");
+  }
 
-  const link = { id: Number(categoryId) };
+  const body = await readJsonBody(req);
+  if (!body) {
+    return badRequest("Invalid JSON body");
+  }
+  const categoryId = parseId(String(body.categoryId));
+  if (!categoryId) {
+    return badRequest("Invalid or missing 'categoryId'");
+  }
+
+  const link = { id: categoryId };
 
   try {
     const manga = await prisma.manga.update({
-      where: { id: Number(id) },
+      where: { id: mangaId },
       data: {
         categories:
           action === "connect" ? { connect: link } : { disconnect: link },
