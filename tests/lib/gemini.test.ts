@@ -204,7 +204,7 @@ describe("rankCandidates prompt building", () => {
     );
 
     const prompt = sentPrompt();
-    expect(prompt).toContain("Preferred genres: Action, Drama");
+    expect(prompt).toContain("Preferred genres/themes: Action, Drama");
     expect(prompt).toContain("Preferred completion status: completed");
     expect(prompt).toContain("Preferred chapter length: long");
   });

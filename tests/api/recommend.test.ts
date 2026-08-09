@@ -91,6 +91,7 @@ describe("POST /api/recommend", () => {
       genres: [],
       completionStatus: "any",
       chapterLength: "any",
+      page: 1,
     });
     expect(rankCandidates.mock.calls[0][1]).toEqual({
       genres: [],

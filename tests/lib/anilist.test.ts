@@ -303,6 +303,20 @@ describe("getCandidatePool", () => {
     }
   });
 
+  it("passes the page through to every query, defaulting to 1, so Suggest More/Diverge can reach fresh candidates", async () => {
+    await getCandidatePool(baseFilters);
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call.variables.page).toBe(1);
+    }
+
+    const callsAfterFirstFetch = calls.length;
+    await getCandidatePool({ ...baseFilters, page: 3 });
+    for (const call of calls.slice(callsAfterFirstFetch)) {
+      expect(call.variables.page).toBe(3);
+    }
+  });
+
   it("merges both batches and de-duplicates by AniList id, round-robin", async () => {
     fetchMock
       .mockResolvedValueOnce(

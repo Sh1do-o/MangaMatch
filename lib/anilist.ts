@@ -249,6 +249,7 @@ export interface CandidatePoolFilters {
   genres: string[];
   completionStatus: string; // "any" | "ongoing" | "completed"
   chapterLength: string; // "any" | "short" | "medium" | "long"
+  page?: number; // 1-based; bump it to pull a fresh batch instead of re-ranking round 1's leftovers
 }
 
 const ARG_TYPES: Record<string, string> = {
@@ -265,8 +266,8 @@ const MAX_POOL_SIZE = 60; // caps the prompt size sent to the ranking step
 
 function buildCandidateQuery(activeArgs: string[]): string {
   return `
-query (${activeArgs.map((a) => `$${a}: ${ARG_TYPES[a]}`).join(", ")}) {
-  Page(perPage: ${CANDIDATES_PER_QUERY}) {
+query ($page: Int, ${activeArgs.map((a) => `$${a}: ${ARG_TYPES[a]}`).join(", ")}) {
+  Page(page: $page, perPage: ${CANDIDATES_PER_QUERY}) {
     media(
       type: MANGA
       isAdult: false
@@ -310,13 +311,14 @@ export async function getCandidatePool(
   filters: CandidatePoolFilters
 ): Promise<MangaResult[]> {
   const status = anilistStatusList(filters.completionStatus);
+  const page = Math.max(1, Math.floor(filters.page ?? 1));
 
   const currentYear = new Date().getFullYear();
   const recentCutoff = (currentYear - 2) * 10000 + 101; // e.g. 20240101
 
   function buildRequest(selection: string | null, recentOnly: boolean) {
     const activeArgs = ["sort"];
-    const vars: Record<string, unknown> = { sort: ["POPULARITY_DESC"] };
+    const vars: Record<string, unknown> = { page, sort: ["POPULARITY_DESC"] };
 
     if (selection) {
       if (isGenre(selection)) {

@@ -49,6 +49,11 @@ export default function RecommendationsPage() {
   // Results state
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  // Every title suggested so far this run, not just the batch on screen —
+  // otherwise "Suggest More" can re-suggest something from an earlier batch.
+  const [seenTitles, setSeenTitles] = useState<Set<string>>(new Set());
+  const [poolPage, setPoolPage] = useState(1);
+  const [note, setNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingRec, setConfirmingRec] = useState<Recommendation | null>(null);
@@ -80,12 +85,21 @@ export default function RecommendationsPage() {
     setBaseMangaIds((prev) => toggleSetItem(prev, id));
   }
 
-  async function fetchRecommendations(diverge = false) {
+  async function fetchRecommendations(diverge = false, fresh = false) {
     setLoading(true);
     setError(null);
+    setNote(null);
+
+    const excludeTitles = fresh
+      ? []
+      : [...Array.from(dismissed), ...Array.from(seenTitles)];
+    const page = fresh ? 1 : poolPage + 1;
 
     try {
-      const data = await fetchJson<{ recommendations: Recommendation[] }>(
+      const data = await fetchJson<{
+        recommendations: Recommendation[];
+        note?: string | null;
+      }>(
         "/api/recommend",
         jsonRequest("POST", {
           genres: Array.from(selectedGenres),
@@ -95,14 +109,21 @@ export default function RecommendationsPage() {
           baseMangaIds: Array.from(baseMangaIds),
           diverge,
           customQuery,
-          excludeTitles: [
-            ...Array.from(dismissed),
-            ...recommendations.map((r) => r.title),
-          ],
+          excludeTitles,
+          page,
         })
       );
 
-      setRecommendations(data.recommendations);
+      const batch = data.recommendations ?? [];
+      setRecommendations(batch);
+      setNote(data.note ?? null);
+      setPoolPage(page);
+      setSeenTitles((prev) => {
+        const next = fresh ? new Set<string>() : new Set(prev);
+        for (const rec of batch) next.add(rec.title);
+        return next;
+      });
+      if (fresh) setDismissed(new Set());
       setStep("results");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -311,7 +332,7 @@ export default function RecommendationsPage() {
                 ← Back
               </button>
               <button
-                onClick={() => fetchRecommendations(false)}
+                onClick={() => fetchRecommendations(false, true)}
                 disabled={loading}
                 className={cn(BUTTON_PRIMARY, "px-7 py-3.5")}
               >
@@ -413,7 +434,8 @@ export default function RecommendationsPage() {
             {recommendations.length === 0 && !error && (
               <EmptyState>
                 <p className="text-sm text-[#8CA0BE]">
-                  No more recommendations found. Try adjusting your filters or use &quot;Diverge&quot; to explore further.
+                  {note ??
+                    'No more recommendations found. Try adjusting your filters or use "Diverge" to explore further.'}
                 </p>
               </EmptyState>
             )}
