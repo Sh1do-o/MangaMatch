@@ -31,7 +31,7 @@ describe("GET /api/manga/search", () => {
   });
 
   it("returns the query alongside the search results", async () => {
-    searchManga.mockResolvedValue([{ malId: 1, title: "Berserk" }]);
+    searchManga.mockResolvedValue([{ anilistId: 1, title: "Berserk" }]);
 
     const res = await GET(request("/api/manga/search?q=berserk"));
 
@@ -39,7 +39,7 @@ describe("GET /api/manga/search", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       query: "berserk",
-      results: [{ malId: 1, title: "Berserk" }],
+      results: [{ anilistId: 1, title: "Berserk" }],
     });
   });
 

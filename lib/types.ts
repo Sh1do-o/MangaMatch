@@ -8,7 +8,7 @@ export interface Category {
 
 export interface SavedManga {
   id: number;
-  malId: number;
+  anilistId: number;
   title: string;
   genres: string;
   coverUrl: string | null;

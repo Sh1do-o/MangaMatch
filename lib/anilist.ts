@@ -5,7 +5,7 @@ import { anilistStatusList } from "@/lib/filters";
 import { isGenre } from "@/lib/genres";
 
 export interface MangaResult {
-  malId: number; // AniList's own numeric ID (field name kept for compatibility)
+  anilistId: number; // AniList numeric ID
   title: string;
   genres: string[];
   coverUrl: string | null;
@@ -16,7 +16,7 @@ export interface MangaResult {
   publishedTo: string | null;
   chapters: number | null;
   volumes: number | null;
-  score: number | null; // normalized to a /10 scale, same as MAL
+  score: number | null; // normalized to a /10 scale
   siteUrl: string | null; // link to the full AniList page
 }
 
@@ -118,7 +118,7 @@ function mapMediaToResult(item: AniListMedia): MangaResult {
       .map((e) => e.node.name.full) ?? [];
 
   return {
-    malId: item.id,
+    anilistId: item.id,
     title: item.title.english ?? item.title.romaji ?? "",
     genres: item.genres ?? [],
     coverUrl: item.coverImage?.extraLarge ?? item.coverImage?.large ?? null,
@@ -227,14 +227,14 @@ export async function getBrowseManga(
  * real reader opinions about what's actually similar.
  */
 export async function getMediaRecommendations(
-  malId: number
+  anilistId: number
 ): Promise<MangaResult[]> {
   try {
     const data = await postAniList<{
       Media?: {
         recommendations: { nodes: { mediaRecommendation: AniListMedia | null }[] };
       };
-    }>(MEDIA_RECOMMENDATIONS_QUERY, { id: malId });
+    }>(MEDIA_RECOMMENDATIONS_QUERY, { id: anilistId });
     const nodes = data?.Media?.recommendations?.nodes ?? [];
     return nodes
       .map((n) => n.mediaRecommendation)

@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 
   try {
     let baseManga: { title: string; genres: string[]; synopsis: string | null }[] = [];
-    let baseMangaMalIds: number[] = [];
+    let baseMangaAnilistIds: number[] = [];
 
     if (baseMangaIds.length > 0) {
       const mangaList = await prisma.manga.findMany({
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
         genres: parseList(manga.genres),
         synopsis: manga.synopsis,
       }));
-      baseMangaMalIds = mangaList.map((manga) => manga.malId);
+      baseMangaAnilistIds = mangaList.map((manga) => manga.anilistId);
     }
 
     // Exclude everything already in the library
@@ -76,15 +76,15 @@ export async function POST(req: NextRequest) {
     // Merge in AniList's own community "if you liked this, try that"
     // recommendations for each selected base manga — a stronger
     // similarity signal than genre-matching alone.
-    if (baseMangaMalIds.length > 0) {
+    if (baseMangaAnilistIds.length > 0) {
       const recLists = await Promise.all(
-        baseMangaMalIds.map((id) => getMediaRecommendations(id))
+        baseMangaAnilistIds.map((id) => getMediaRecommendations(id))
       );
-      const seen = new Set(pool.map((m) => m.malId));
+      const seen = new Set(pool.map((m) => m.anilistId));
       for (const list of recLists) {
         for (const m of list) {
-          if (!seen.has(m.malId)) {
-            seen.add(m.malId);
+          if (!seen.has(m.anilistId)) {
+            seen.add(m.anilistId);
             pool.push(m);
           }
         }
@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
     }
 
     const candidatesForGemini: CandidateManga[] = pool.map((m) => ({
-      malId: m.malId,
+      anilistId: m.anilistId,
       title: m.title,
       genres: m.genres,
       synopsis: m.synopsis,
@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
         title: match.title,
         synopsis: match.synopsis ?? "",
         reason: pick.reason,
-        malId: match.malId,
+        anilistId: match.anilistId,
         coverUrl: match.coverUrl,
         genres: match.genres,
         chapters: match.chapters,

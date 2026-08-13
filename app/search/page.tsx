@@ -105,9 +105,10 @@ export default function SearchPage() {
   async function confirmAdd() {
     if (!pendingManga) return;
     const manga = pendingManga;
+    const targetId = manga.anilistId;
 
     setConfirmingAdd(true);
-    setAddedIds((prev) => new Set(prev).add(manga.malId));
+    setAddedIds((prev) => new Set(prev).add(targetId));
 
     try {
       const saved = await addMangaToLibrary(manga);
@@ -116,7 +117,7 @@ export default function SearchPage() {
         await setMangaCategory(saved.id, selectedCategoryId, false);
       }
     } catch {
-      setAddedIds((prev) => toggleSetItem(prev, manga.malId));
+      setAddedIds((prev) => toggleSetItem(prev, targetId));
     } finally {
       setConfirmingAdd(false);
       setPendingManga(null);
@@ -218,15 +219,18 @@ export default function SearchPage() {
               <MangaCardSkeletons />
             ) : browseResults && browseResults.length > 0 ? (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {browseResults.map((manga, i) => (
-                  <MangaCard
-                    key={manga.malId}
-                    manga={manga}
-                    index={i}
-                    isAdded={addedIds.has(manga.malId)}
-                    onAdd={openAddModal}
-                  />
-                ))}
+                {browseResults.map((manga, i) => {
+                  const mId = manga.anilistId;
+                  return (
+                    <MangaCard
+                      key={mId}
+                      manga={manga}
+                      index={i}
+                      isAdded={addedIds.has(mId)}
+                      onAdd={openAddModal}
+                    />
+                  );
+                })}
               </div>
             ) : (
               !browseError && (
@@ -263,15 +267,18 @@ export default function SearchPage() {
             </ResultsHeader>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {results.map((manga, i) => (
-                <MangaCard
-                  key={manga.malId}
-                  manga={manga}
-                  index={i}
-                  isAdded={addedIds.has(manga.malId)}
-                  onAdd={openAddModal}
-                />
-              ))}
+              {results.map((manga, i) => {
+                const mId = manga.anilistId;
+                return (
+                  <MangaCard
+                    key={mId}
+                    manga={manga}
+                    index={i}
+                    isAdded={addedIds.has(mId)}
+                    onAdd={openAddModal}
+                  />
+                );
+              })}
             </div>
           </>
         )}

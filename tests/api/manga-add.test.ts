@@ -17,7 +17,7 @@ function postRequest(body: unknown) {
 
 function mangaResult(overrides: Partial<MangaResult> = {}): MangaResult {
   return {
-    malId: 30002,
+    anilistId: 30002,
     title: "Berserk",
     genres: ["Action", "Drama"],
     coverUrl: "https://img/berserk.jpg",
@@ -35,7 +35,7 @@ function mangaResult(overrides: Partial<MangaResult> = {}): MangaResult {
 }
 
 beforeEach(() => {
-  upsert.mockResolvedValue({ id: 1, malId: 30002, title: "Berserk" });
+  upsert.mockResolvedValue({ id: 1, anilistId: 30002, title: "Berserk" });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -46,31 +46,31 @@ afterEach(() => {
 
 describe("POST /api/manga/add", () => {
   it.each([
-    ["malId", { title: "Berserk", genres: [], authors: [] }],
-    ["title", { malId: 1, genres: [], authors: [] }],
+    ["anilistId", { title: "Berserk", genres: [], authors: [] }],
+    ["title", { anilistId: 1, genres: [], authors: [] }],
   ])("400s when %s is missing", async (_field, body) => {
     const res = await POST(postRequest(body));
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
-      error: "Invalid or missing fields: malId, title, genres, authors",
+      error: "Invalid or missing fields: anilistId, title, genres, authors",
     });
     expect(upsert).not.toHaveBeenCalled();
   });
 
-  it("upserts by malId, joining list fields and defaulting reading status", async () => {
+  it("upserts by anilistId, joining list fields and defaulting reading status", async () => {
     const res = await POST(postRequest(mangaResult()));
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       success: true,
-      manga: { id: 1, malId: 30002, title: "Berserk" },
+      manga: { id: 1, anilistId: 30002, title: "Berserk" },
     });
     expect(upsert).toHaveBeenCalledWith({
-      where: { malId: 30002 },
+      where: { anilistId: 30002 },
       update: {},
       create: {
-        malId: 30002,
+        anilistId: 30002,
         title: "Berserk",
         genres: "Action,Drama",
         coverUrl: "https://img/berserk.jpg",
@@ -91,7 +91,7 @@ describe("POST /api/manga/add", () => {
   it("stores nulls for absent optional fields", async () => {
     await POST(
       postRequest({
-        malId: 5,
+        anilistId: 5,
         title: "Sparse",
         genres: [],
         coverUrl: null,

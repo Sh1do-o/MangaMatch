@@ -87,7 +87,7 @@ describe("searchManga", () => {
     expect(calls[0].variables).toEqual({ search: "berserk" });
     expect(results).toEqual([
       {
-        malId: 30002,
+        anilistId: 30002,
         title: "Berserk EN",
         genres: ["Action", "Drama"],
         coverUrl: "https://img/extra.jpg",
@@ -163,7 +163,7 @@ describe("searchManga", () => {
     const results = await searchManga("x");
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(results[0].malId).toBe(7);
+    expect(results[0].anilistId).toBe(7);
   });
 
   it("gives up after the retry limit on persistent transient errors", async () => {
@@ -213,7 +213,7 @@ describe("getMediaRecommendations", () => {
 
     const sentBody = JSON.parse(String(fetchMock.mock.calls[0][1].body));
     expect(sentBody.variables).toEqual({ id: 30002 });
-    expect(results.map((r) => r.malId)).toEqual([1]);
+    expect(results.map((r) => r.anilistId)).toEqual([1]);
   });
 
   it("returns an empty list when the media has no recommendations", async () => {
@@ -331,7 +331,7 @@ describe("getCandidatePool", () => {
     // Round-robin across batches (popularity query, then recency query),
     // so no single query dominates the pool: 1 (batch0[0]), 2 (batch1[0],
     // batch0[1] already seen), 3 (batch1[1]).
-    expect(results.map((r) => r.malId)).toEqual([1, 2, 3]);
+    expect(results.map((r) => r.anilistId)).toEqual([1, 2, 3]);
   });
 
   it("still returns the other batch when one query fails", async () => {
@@ -341,6 +341,6 @@ describe("getCandidatePool", () => {
 
     const results = await getCandidatePool(baseFilters);
 
-    expect(results.map((r) => r.malId)).toEqual([1]);
+    expect(results.map((r) => r.anilistId)).toEqual([1]);
   });
 });

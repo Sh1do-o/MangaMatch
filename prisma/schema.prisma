@@ -1,5 +1,5 @@
 // Prisma schema — defines the Manga model and SQLite datasource.
-// Run `npx prisma init` / `npx prisma migrate dev` once dependencies are added.
+// Run `npx prisma migrate dev` after any schema changes.
 
 generator client {
   provider = "prisma-client-js"
@@ -12,12 +12,12 @@ datasource db {
 
 model Manga {
   id                Int      @id @default(autoincrement())
-  malId             Int      @unique // Jikan/MyAnimeList ID, prevents duplicate adds
+  anilistId         Int      @unique // AniList numeric ID, prevents duplicate adds
   title             String
   genres            String   // stored as comma-separated for now
   coverUrl          String?
   synopsis          String?
-  publicationStatus String?  // e.g. "Publishing", "Finished" — from Jikan
+  publicationStatus String?  // e.g. "Publishing", "Finished" — from AniList
   readingStatus     String   @default("planning") // "reading" | "completed" | "planning"
   rating            Int?
   authors           String?  // comma-separated

@@ -22,7 +22,7 @@ const { POST } = await import("@/app/api/recommend/route");
 
 function manga(overrides: Partial<MangaResult> = {}): MangaResult {
   return {
-    malId: 1,
+    anilistId: 1,
     title: "Candidate 1",
     genres: ["Action"],
     coverUrl: "https://img/1.jpg",
@@ -73,7 +73,7 @@ describe("POST /api/recommend", () => {
           title: "Candidate 1",
           synopsis: "Synopsis 1",
           reason: "Great fit",
-          malId: 1,
+          anilistId: 1,
           coverUrl: "https://img/1.jpg",
           genres: ["Action"],
           chapters: 50,
@@ -113,7 +113,7 @@ describe("POST /api/recommend", () => {
 
   it("caps the response at 5 recommendations", async () => {
     getCandidatePool.mockResolvedValue(
-      Array.from({ length: 8 }, (_, i) => manga({ malId: i + 1, title: `C${i}` }))
+      Array.from({ length: 8 }, (_, i) => manga({ anilistId: i + 1, title: `C${i}` }))
     );
     rankCandidates.mockResolvedValue(
       Array.from({ length: 8 }, (_, i) => ({ index: i, reason: `r${i}` }))
@@ -129,7 +129,7 @@ describe("POST /api/recommend", () => {
       .mockResolvedValueOnce([
         {
           id: 3,
-          malId: 999,
+          anilistId: 999,
           title: "Berserk",
           genres: "Action,Drama,",
           synopsis: "Dark fantasy",
@@ -158,25 +158,25 @@ describe("POST /api/recommend", () => {
   it("merges community recommendations into the pool, de-duplicated by id", async () => {
     findMany
       .mockResolvedValueOnce([
-        { id: 3, malId: 999, title: "Berserk", genres: "", synopsis: null },
+        { id: 3, anilistId: 999, title: "Berserk", genres: "", synopsis: null },
       ])
       .mockResolvedValueOnce([]);
     getMediaRecommendations.mockResolvedValue([
-      manga({ malId: 1, title: "Duplicate of pool" }),
-      manga({ malId: 2, title: "Community pick" }),
+      manga({ anilistId: 1, title: "Duplicate of pool" }),
+      manga({ anilistId: 2, title: "Community pick" }),
     ]);
 
     await POST(request({ baseMangaIds: [3] }));
 
     const candidates = rankCandidates.mock.calls[0][0];
-    expect(candidates.map((c: { malId: number }) => c.malId)).toEqual([1, 2]);
+    expect(candidates.map((c: { anilistId: number }) => c.anilistId)).toEqual([1, 2]);
     expect(candidates[0].title).toBe("Candidate 1");
   });
 
   it("excludes titles already in the library, case-insensitively", async () => {
     getCandidatePool.mockResolvedValue([
-      manga({ malId: 1, title: "Berserk" }),
-      manga({ malId: 2, title: "Vagabond" }),
+      manga({ anilistId: 1, title: "Berserk" }),
+      manga({ anilistId: 2, title: "Vagabond" }),
     ]);
     findMany.mockResolvedValue([{ title: "bErSeRk" }]);
 
@@ -189,8 +189,8 @@ describe("POST /api/recommend", () => {
 
   it("excludes titles the client has already seen", async () => {
     getCandidatePool.mockResolvedValue([
-      manga({ malId: 1, title: "Berserk" }),
-      manga({ malId: 2, title: "Vagabond" }),
+      manga({ anilistId: 1, title: "Berserk" }),
+      manga({ anilistId: 2, title: "Vagabond" }),
     ]);
 
     await POST(request({ excludeTitles: ["VAGABOND"] }));
@@ -209,7 +209,7 @@ describe("POST /api/recommend", () => {
     async (completionStatus, expected) => {
       getCandidatePool.mockResolvedValue(
         ["FINISHED", "RELEASING", "HIATUS", "NOT_YET_RELEASED", null].map(
-          (status, i) => manga({ malId: i + 1, status })
+          (status, i) => manga({ anilistId: i + 1, status })
         )
       );
 
@@ -231,7 +231,7 @@ describe("POST /api/recommend", () => {
     async (chapterLength, expected) => {
       getCandidatePool.mockResolvedValue(
         [99, 100, 400, 401, null].map((chapters, i) =>
-          manga({ malId: i + 1, chapters })
+          manga({ anilistId: i + 1, chapters })
         )
       );
 
@@ -245,9 +245,9 @@ describe("POST /api/recommend", () => {
 
   it("drops adult genres when contentRating is 'safe'", async () => {
     getCandidatePool.mockResolvedValue([
-      manga({ malId: 1, title: "Safe", genres: ["Action"] }),
-      manga({ malId: 2, title: "Hentai pick", genres: ["Hentai"] }),
-      manga({ malId: 3, title: "Ecchi pick", genres: ["Comedy", "Ecchi"] }),
+      manga({ anilistId: 1, title: "Safe", genres: ["Action"] }),
+      manga({ anilistId: 2, title: "Hentai pick", genres: ["Hentai"] }),
+      manga({ anilistId: 3, title: "Ecchi pick", genres: ["Comedy", "Ecchi"] }),
     ]);
 
     await POST(request({ contentRating: "safe" }));
@@ -259,7 +259,7 @@ describe("POST /api/recommend", () => {
 
   it("keeps adult genres when contentRating is unrestricted", async () => {
     getCandidatePool.mockResolvedValue([
-      manga({ malId: 2, title: "Ecchi pick", genres: ["Ecchi"] }),
+      manga({ anilistId: 2, title: "Ecchi pick", genres: ["Ecchi"] }),
     ]);
 
     await POST(request({ contentRating: "any" }));

@@ -13,7 +13,7 @@ function request(url: string) {
 }
 
 beforeEach(() => {
-  getBrowseManga.mockResolvedValue([{ malId: 1, title: "Berserk" }]);
+  getBrowseManga.mockResolvedValue([{ anilistId: 1, title: "Berserk" }]);
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -28,7 +28,7 @@ describe("GET /api/manga/trending", () => {
 
     expect(getBrowseManga).toHaveBeenCalledWith("trending", undefined);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ results: [{ malId: 1, title: "Berserk" }] });
+    expect(await res.json()).toEqual({ results: [{ anilistId: 1, title: "Berserk" }] });
   });
 
   it.each(["trending", "popular", "top-rated"])(

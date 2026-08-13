@@ -7,7 +7,7 @@ import {
 
 function candidate(overrides: Partial<CandidateManga> = {}): CandidateManga {
   return {
-    malId: 1,
+    anilistId: 1,
     title: "Vinland Saga",
     genres: ["Action", "Adventure"],
     synopsis: "Vikings.",
@@ -80,7 +80,7 @@ describe("rankCandidates", () => {
 
   it("parses the ranked picks from the response", async () => {
     const picks = await rankCandidates(
-      [candidate(), candidate({ malId: 2 })],
+      [candidate(), candidate({ anilistId: 2 })],
       filters()
     );
 
@@ -93,7 +93,7 @@ describe("rankCandidates", () => {
     );
 
     const picks = await rankCandidates(
-      [candidate(), candidate({ malId: 2 })],
+      [candidate(), candidate({ anilistId: 2 })],
       filters()
     );
 
@@ -114,7 +114,7 @@ describe("rankCandidates", () => {
     );
 
     const picks = await rankCandidates(
-      [candidate(), candidate({ malId: 2 })],
+      [candidate(), candidate({ anilistId: 2 })],
       filters()
     );
 
@@ -157,7 +157,7 @@ describe("rankCandidates prompt building", () => {
     await rankCandidates(
       [
         candidate({ title: "First" }),
-        candidate({ malId: 2, title: "Second", synopsis: longSynopsis }),
+        candidate({ anilistId: 2, title: "Second", synopsis: longSynopsis }),
       ],
       filters()
     );

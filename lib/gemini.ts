@@ -6,7 +6,7 @@
 // stale or wrong) recollection.
 
 export interface CandidateManga {
-  malId: number;
+  anilistId: number;
   title: string;
   genres: string[];
   synopsis: string | null;

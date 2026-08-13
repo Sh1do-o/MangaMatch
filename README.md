@@ -39,7 +39,7 @@ A personal manga tracking and AI-powered recommendation app. Search or browse ma
 | Manga data | [AniList GraphQL API](https://docs.anilist.co/) (official, no auth required) |
 | AI ranking | [Gemini API](https://ai.google.dev/) (Gemini 2.5 Flash — free tier) |
 
-> **Note:** `lib/jikan.ts` (a helper for the [Jikan/MyAnimeList API](https://docs.api.jikan.moe/)) is still in the repo but is legacy/unused — the project migrated from Jikan to AniList for search, browse, and recommendations (AniList is more reliable, has no rate-limit outages, and exposes trending/popularity/recommendation data Jikan doesn't). The `MangaResult` field `malId` was kept as the internal ID field name for compatibility even though it now stores an AniList ID.
+> **Note:** The project originally used Jikan/MyAnimeList before migrating to AniList. The database schema and TypeScript interfaces have been refactored to use `anilistId` as the primary external reference ID for clear AniList GraphQL integration.
 
 ## Getting Started
 
@@ -105,7 +105,6 @@ app/
   page.tsx              — home page (hero + recently added)
 lib/
   anilist.ts            — AniList GraphQL: search, browse, candidate pool, media recommendations (active)
-  jikan.ts               — Jikan/MAL API helper (legacy, currently unused)
   gemini.ts              — builds the ranking prompt, calls Gemini, parses picks
   db.ts                  — Prisma client singleton
 components/
@@ -115,7 +114,7 @@ components/
   RatingEditor.tsx
   DeleteMangaButton.tsx
 tests/
-  lib/                  — unit tests for the AniList/Gemini/Jikan helpers
+  lib/                  — unit tests for the AniList/Gemini helpers
   api/                  — unit tests for the route handlers
 prisma/
   schema.prisma         — Manga + Category models
@@ -136,7 +135,7 @@ This is worth calling out specifically since it's the core feature and the archi
 
 ## Data Model
 
-- **Manga** — `malId` (unique external ID), `title`, `genres` (comma-separated string), `coverUrl`, `synopsis`, `publicationStatus`, `readingStatus` (`planning` / `reading` / `completed`), `rating` (1–10), `authors`, `publishedFrom`/`publishedTo`, `chapters`, `volumes`, `malScore`, `siteUrl`, `createdAt`, `updatedAt`
+- **Manga** — `anilistId` (unique external ID), `title`, `genres` (comma-separated string), `coverUrl`, `synopsis`, `publicationStatus`, `readingStatus` (`planning` / `reading` / `completed`), `rating` (1–10), `authors`, `publishedFrom`/`publishedTo`, `chapters`, `volumes`, `malScore`, `siteUrl`, `createdAt`, `updatedAt`
 - **Category** — `name` (unique), `color` (hex, default gold `#E8C77E`), many-to-many with Manga
 
 Genres and authors are stored as comma-separated strings rather than normalized join tables — simple for a single-user app, but worth revisiting (see Known Limitations) if the schema needs to grow.
@@ -151,7 +150,6 @@ This app uses a single-user, no-login model — everything is stored locally in 
 - Genres and authors are stored as comma-separated strings, not normalized — makes exact genre filtering and multi-author queries a bit blunt
 - Content rating filtering ("safe" mode) is a genre-based heuristic (excludes Hentai/Ecchi tags), not a hard guarantee — AniList doesn't expose a granular content rating field
 - No pagination yet — large libraries and browse results render all at once
-- `lib/jikan.ts` is dead code left over from the pre-AniList version; safe to remove but kept for now in case of a fallback need
 - No image optimization/caching for cover art — covers are hotlinked directly from AniList's CDN
 - No tests for the React page/component layer yet — only `lib/` and `app/api/` are covered
 
@@ -160,5 +158,4 @@ This app uses a single-user, no-login model — everything is stored locally in 
 - Normalize genres/authors into their own tables for real relational filtering
 - Pagination for library and browse views
 - Export/import library as JSON for easier backup
-- Remove or repurpose the legacy Jikan helper
 - Read-now links to external reader sites (MangaFire, Comix)

@@ -26,7 +26,7 @@ interface Recommendation {
   title: string;
   synopsis: string;
   reason: string;
-  malId?: number | null;
+  anilistId?: number | null;
   coverUrl?: string | null;
   genres?: string[];
   chapters?: number | null;
@@ -141,9 +141,10 @@ export default function RecommendationsPage() {
     setAddingToLibrary(true);
 
     try {
-      if (confirmingRec.malId) {
+      const targetId = confirmingRec.anilistId;
+      if (targetId) {
         await addMangaToLibrary({
-          malId: confirmingRec.malId,
+          anilistId: targetId,
           title: confirmingRec.title,
           genres: confirmingRec.genres ?? [],
           coverUrl: confirmingRec.coverUrl ?? null,

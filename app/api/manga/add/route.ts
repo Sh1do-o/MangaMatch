@@ -21,23 +21,25 @@ export async function POST(req: NextRequest) {
     return badRequest("Invalid JSON body");
   }
 
-  const malId = parseOptionalInteger(body.malId);
+  // Accept anilistId as the canonical field; fall back to malId for
+  // backward compatibility during the transition period.
+  const anilistId = parseOptionalInteger(body.anilistId ?? body.malId);
   const title = parseString(body.title, MAX_TITLE_LENGTH);
   const genres = parseStringArray(body.genres, MAX_TITLE_LENGTH);
   const authors = parseStringArray(body.authors, MAX_TITLE_LENGTH);
 
-  if (!malId || !title || !genres || !authors) {
+  if (!anilistId || !title || !genres || !authors) {
     return badRequest(
-      "Invalid or missing fields: malId, title, genres, authors"
+      "Invalid or missing fields: anilistId, title, genres, authors"
     );
   }
 
   try {
     const manga = await prisma.manga.upsert({
-      where: { malId },
+      where: { anilistId },
       update: {}, // if it already exists, do nothing — just confirm success
       create: {
-        malId,
+        anilistId,
         title,
         genres: genres.join(","),
         coverUrl: parseHttpUrl(body.coverUrl),
