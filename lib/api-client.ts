@@ -57,3 +57,43 @@ export async function addMangaToLibrary(
   );
   return data.manga;
 }
+
+export interface ImportResult {
+  success: boolean;
+  mode: "merge" | "replace";
+  importedCount: number;
+  updatedCount: number;
+  totalProcessed: number;
+  createdCategoriesCount: number;
+}
+
+export async function exportLibrary(): Promise<void> {
+  const response = await fetch("/api/manga/export");
+  if (!response.ok) {
+    throw new Error("Failed to export library");
+  }
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.style.display = "none";
+  a.href = url;
+  a.download = `mangamatch-library-${new Date().toISOString().split("T")[0]}.json`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+}
+
+export async function importLibrary(
+  jsonData: unknown,
+  mode: "merge" | "replace" = "merge"
+): Promise<ImportResult> {
+  const payload = typeof jsonData === "object" && jsonData !== null
+    ? { ...(jsonData as Record<string, unknown>), mode }
+    : { library: [], mode };
+
+  return fetchJson<ImportResult>(
+    "/api/manga/import",
+    jsonRequest("POST", payload)
+  );
+}

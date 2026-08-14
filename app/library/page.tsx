@@ -15,8 +15,11 @@ import MangaCardSkeletons from "@/components/MangaCardSkeletons";
 import {
   deleteCategory,
   deleteManga,
+  exportLibrary,
   fetchCategories,
   fetchLibrary,
+  importLibrary,
+  type ImportResult,
 } from "@/lib/api-client";
 import { parseList } from "@/lib/manga";
 import type { Category, SavedManga } from "@/lib/types";
@@ -66,6 +69,15 @@ export default function LibraryPage() {
   const [deletingMangaItem, setDeletingMangaItem] = useState<{ id: number; title: string } | null>(null);
   const [deletingCategoryItem, setDeletingCategoryItem] = useState<Category | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
+
+  // Export / Import state
+  const [exporting, setExporting] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importJsonData, setImportJsonData] = useState<{ library?: unknown[]; categories?: unknown[] } | null>(null);
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadLibrary() {
@@ -123,6 +135,76 @@ export default function LibraryPage() {
       setToastMessage({ text: `Deleted category "${name}"`, type: "info" });
     } catch {
       setToastMessage({ text: "Failed to delete category.", type: "error" });
+    }
+  }
+
+  async function handleExportLibrary() {
+    setExporting(true);
+    try {
+      await exportLibrary();
+      setToastMessage({
+        text: "Library backup exported successfully!",
+        type: "success",
+      });
+    } catch (err) {
+      setToastMessage({
+        text: err instanceof Error ? err.message : "Failed to export library",
+        type: "error",
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    setImportError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+        if (!parsed || !Array.isArray(parsed.library)) {
+          throw new Error("Invalid backup file. Expected a 'library' array.");
+        }
+        setImportJsonData(parsed);
+      } catch (err) {
+        setImportError(err instanceof Error ? err.message : "Failed to parse JSON file");
+        setImportJsonData(null);
+      }
+    };
+    reader.onerror = () => {
+      setImportError("Failed to read file.");
+      setImportJsonData(null);
+    };
+    reader.readAsText(file);
+  }
+
+  async function handleExecuteImport() {
+    if (!importJsonData) return;
+    setImporting(true);
+    setImportError(null);
+
+    try {
+      const result = await importLibrary(importJsonData, importMode);
+      setManga(await fetchLibrary());
+      await loadCategories();
+      setImportModalOpen(false);
+      setImportJsonData(null);
+      setImportFileName(null);
+      setToastMessage({
+        text: `Restored: ${result.importedCount} added, ${result.updatedCount} updated!`,
+        type: "success",
+      });
+    } catch (err) {
+      setImportError(
+        err instanceof Error ? err.message : "Failed to import library."
+      );
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -445,6 +527,33 @@ export default function LibraryPage() {
                 Reset All Filters
               </button>
             )}
+
+            {/* Backup & Restore */}
+            <div className="border-t border-[#1E2C42]/80 pt-4">
+              <p className={`mb-2.5 ${LABEL}`}>Backup & Restore</p>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={handleExportLibrary}
+                  disabled={exporting || manga.length === 0}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-[#1E2C42] bg-[#0B1220]/60 py-2 font-mono text-xs text-[#8CA0BE] hover:border-[#E8C77E]/50 hover:text-[#E8C77E] transition-all disabled:opacity-50"
+                >
+                  <span>📥</span>
+                  <span>{exporting ? "Exporting..." : "Export Library (JSON)"}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setImportError(null);
+                    setImportJsonData(null);
+                    setImportFileName(null);
+                    setImportModalOpen(true);
+                  }}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-[#1E2C42] bg-[#0B1220]/60 py-2 font-mono text-xs text-[#8CA0BE] hover:border-[#E8C77E]/50 hover:text-[#E8C77E] transition-all"
+                >
+                  <span>📤</span>
+                  <span>Import Backup</span>
+                </button>
+              </div>
+            </div>
           </aside>
 
           {/* MAIN POSTER GRID / LIST AREA */}
@@ -733,6 +842,120 @@ export default function LibraryPage() {
             >
               Done
             </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Import Library Modal */}
+      {importModalOpen && (
+        <Modal title="Import Library Backup">
+          <div className="mt-4 space-y-5">
+            <p className="text-xs text-[#8CA0BE] leading-relaxed">
+              Upload a previously exported <code className="text-[#E8C77E]">.json</code> backup file to restore your manga collection, ratings, reading status, and category tags.
+            </p>
+
+            {/* File Input */}
+            <div className="rounded-2xl border-2 border-dashed border-[#1E2C42] bg-[#0B1220]/60 p-5 text-center">
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleFileSelect}
+                id="library-backup-file"
+                className="hidden"
+              />
+              <label
+                htmlFor="library-backup-file"
+                className="cursor-pointer flex flex-col items-center gap-2 text-xs text-[#8CA0BE] hover:text-[#F5F5F0]"
+              >
+                <span className="text-2xl">📁</span>
+                <span className="font-medium text-[#E8C77E]">
+                  {importFileName ? importFileName : "Click to select .json file"}
+                </span>
+                <span className="text-[10px] text-[#8CA0BE]">JSON backup files only</span>
+              </label>
+            </div>
+
+            {/* Detected Stats */}
+            {importJsonData && (
+              <div className="rounded-2xl border border-[#E8C77E]/30 bg-[#E8C77E]/10 p-4">
+                <p className="font-mono text-xs font-bold text-[#E8C77E] mb-1">
+                  ✓ Backup File Validated
+                </p>
+                <div className="flex gap-4 font-mono text-[11px] text-[#F5F5F0]">
+                  <span>📚 {Array.isArray(importJsonData.library) ? importJsonData.library.length : 0} Manga Titles</span>
+                  <span>🏷️ {Array.isArray(importJsonData.categories) ? importJsonData.categories.length : 0} Categories</span>
+                </div>
+              </div>
+            )}
+
+            {/* Error banner */}
+            {importError && (
+              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+                {importError}
+              </div>
+            )}
+
+            {/* Import Strategy Mode */}
+            {importJsonData && (
+              <div>
+                <p className={`mb-2 ${LABEL}`}>Import Mode</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setImportMode("merge")}
+                    className={`rounded-xl border p-3 text-left transition-all ${
+                      importMode === "merge"
+                        ? "border-[#E8C77E] bg-[#E8C77E]/15 text-[#F5F5F0]"
+                        : "border-[#1E2C42] bg-[#0B1220]/40 text-[#8CA0BE] hover:border-[#F5F5F0]/30"
+                    }`}
+                  >
+                    <p className="font-bold text-xs">Merge & Update</p>
+                    <p className="text-[10px] text-[#8CA0BE] mt-0.5">
+                      Adds new titles, keeps existing
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setImportMode("replace")}
+                    className={`rounded-xl border p-3 text-left transition-all ${
+                      importMode === "replace"
+                        ? "border-red-500 bg-red-500/15 text-white"
+                        : "border-[#1E2C42] bg-[#0B1220]/40 text-[#8CA0BE] hover:border-red-500/30"
+                    }`}
+                  >
+                    <p className="font-bold text-xs text-red-300">Replace Library</p>
+                    <p className="text-[10px] text-[#8CA0BE] mt-0.5">
+                      Overwrites current collection
+                    </p>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setImportModalOpen(false);
+                  setImportJsonData(null);
+                  setImportFileName(null);
+                }}
+                disabled={importing}
+                className={cn(BUTTON_SECONDARY, "flex-1 py-2.5 text-xs")}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteImport}
+                disabled={!importJsonData || importing}
+                className={cn(BUTTON_PRIMARY, "flex-1 py-2.5 text-xs font-bold")}
+              >
+                {importing ? "Importing..." : "Restore Library →"}
+              </button>
+            </div>
           </div>
         </Modal>
       )}
