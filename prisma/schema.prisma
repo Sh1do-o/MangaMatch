@@ -1,5 +1,5 @@
 // Prisma schema — defines the Manga model and SQLite datasource.
-// Run `npx prisma migrate dev` after any schema changes.
+// Supports both local file:./dev.db and Turso cloud libSQL (libsql://...) via Prisma driver adapter.
 
 generator client {
   provider = "prisma-client-js"
@@ -7,7 +7,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  url      = env("DATABASE_URL")
 }
 
 model Manga {
