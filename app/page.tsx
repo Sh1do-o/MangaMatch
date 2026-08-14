@@ -5,8 +5,17 @@ import CoverImage from "@/components/CoverImage";
 import EmptyState from "@/components/EmptyState";
 import { cn, BUTTON_PRIMARY } from "@/lib/ui";
 
+import { getSessionId } from "@/lib/session";
+import { seedStarterLibraryIfEmpty } from "@/lib/starter-data";
+
 export default async function HomePage() {
+  const sessionId = await getSessionId();
+  if (sessionId) {
+    await seedStarterLibraryIfEmpty(sessionId);
+  }
+
   const recentManga = await prisma.manga.findMany({
+    where: { sessionId },
     orderBy: { createdAt: "desc" },
     take: 6,
   });
