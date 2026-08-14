@@ -16,12 +16,17 @@ export default function Nav() {
     <nav className="sticky top-0 z-40 bg-[#0B1220]/80 backdrop-blur-md border-b border-[#1E2C42] shadow-[0_4px_20px_rgba(0,0,0,0.25)]">
       <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#E8C77E]/50 to-transparent" />
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-        {/* Brand – gradient gold for a subtle premium touch */}
+        {/* Brand – gradient gold with stylish logo icon */}
         <Link
           href="/"
-          className="group font-[family-name:var(--font-display)] text-sm font-semibold uppercase tracking-[0.15em] transition-all duration-300"
+          className="group flex items-center gap-2.5 font-[family-name:var(--font-display)] text-sm font-semibold uppercase tracking-[0.15em] transition-all duration-300"
         >
-          <span className="text-gradient-gold">MangaMatch</span>
+          <img
+            src="/logo-icon.png"
+            alt="MangaMatch Icon"
+            className="h-7 w-7 rounded-lg border border-[#E8C77E]/30 object-cover shadow-[0_0_15px_rgba(232,199,126,0.2)] transition-transform duration-300 group-hover:scale-105 group-hover:border-[#E8C77E]/60"
+          />
+          <span className="text-gradient-gold text-base tracking-wider font-bold">MangaMatch</span>
         </Link>
 
         {/* Nav links */}

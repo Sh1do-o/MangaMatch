@@ -19,8 +19,13 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Manga Recommender",
-  description: "Track what you're reading and get AI-powered recommendations.",
+  title: "MangaMatch - AI Manga Tracker & Recommendations",
+  description: "Track what you're reading and get AI-powered recommendations based on your tastes.",
+  icons: {
+    icon: "/logo-icon.png",
+    shortcut: "/logo-icon.png",
+    apple: "/logo-icon.png",
+  },
 };
 
 export default function RootLayout({
