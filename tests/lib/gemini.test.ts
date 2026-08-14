@@ -165,8 +165,8 @@ describe("rankCandidates prompt building", () => {
     const prompt = sentPrompt();
     expect(prompt).toContain('0. "First"');
     expect(prompt).toContain('1. "Second"');
-    expect(prompt).toContain("a".repeat(200));
-    expect(prompt).not.toContain("a".repeat(201));
+    expect(prompt).toContain("a".repeat(160));
+    expect(prompt).not.toContain("a".repeat(161));
   });
 
   it("labels unknown candidate fields rather than omitting them", async () => {
@@ -176,21 +176,20 @@ describe("rankCandidates prompt building", () => {
     );
 
     const prompt = sentPrompt();
-    expect(prompt).toContain("status: unknown");
-    expect(prompt).toContain("chapters: unknown");
-    expect(prompt).toContain("score: unknown/10");
+    expect(prompt).toContain("Status: unknown");
+    expect(prompt).toContain("Score: N/A/10");
   });
 
   it("omits preference lines when filters are unset", async () => {
     await rankCandidates([candidate()], filters());
 
     const prompt = sentPrompt();
-    expect(prompt).not.toContain("Preferred genres");
+    expect(prompt).not.toContain("TARGET GENRES");
     expect(prompt).not.toContain("Preferred completion status");
     expect(prompt).not.toContain("Preferred chapter length");
-    expect(prompt).not.toContain("Prioritize similarity");
-    expect(prompt).not.toContain("Diverge somewhat");
-    expect(prompt).not.toContain("Additional user instructions");
+    expect(prompt).not.toContain("Anchor strongly on");
+    expect(prompt).not.toContain("Diverge mode is ON");
+    expect(prompt).not.toContain("User custom instructions");
   });
 
   it("includes genre, status and chapter-length preferences when set", async () => {
@@ -204,7 +203,7 @@ describe("rankCandidates prompt building", () => {
     );
 
     const prompt = sentPrompt();
-    expect(prompt).toContain("Preferred genres/themes: Action, Drama");
+    expect(prompt).toContain("TARGET GENRES & THEMES (TOP PRIORITY): The user explicitly requested: [Action, Drama]");
     expect(prompt).toContain("Preferred completion status: completed");
     expect(prompt).toContain("Preferred chapter length: long");
   });
@@ -220,8 +219,8 @@ describe("rankCandidates prompt building", () => {
     );
 
     const prompt = sentPrompt();
-    expect(prompt).toContain("Prioritize similarity to this manga:");
-    expect(prompt).toContain('"Berserk" (genres: Action; synopsis: Dark fantasy)');
+    expect(prompt).toContain("Anchor strongly on this favorite manga:");
+    expect(prompt).toContain('"Berserk" (genres/themes: Action; synopsis: Dark fantasy)');
   });
 
   it("uses collective phrasing for multiple base manga and handles null synopses", async () => {
@@ -236,7 +235,7 @@ describe("rankCandidates prompt building", () => {
     );
 
     const prompt = sentPrompt();
-    expect(prompt).toContain("Prioritize similarity to ALL of these manga");
+    expect(prompt).toContain("Anchor collectively on these favorite manga:");
     expect(prompt).toContain("synopsis: N/A");
     expect(prompt).toContain('"Vagabond"');
   });
@@ -248,7 +247,7 @@ describe("rankCandidates prompt building", () => {
     );
 
     const prompt = sentPrompt();
-    expect(prompt).toContain("Diverge somewhat");
+    expect(prompt).toContain("Diverge mode is ON");
     expect(prompt).toContain("Additional user instructions: no isekai please");
   });
 

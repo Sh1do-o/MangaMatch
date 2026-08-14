@@ -33,19 +33,22 @@ export interface RankedPick {
   reason: string;
 }
 
-function buildPrompt(
+export function buildPrompt(
   candidates: CandidateManga[],
   filters: RankingFilters
 ): string {
   const parts: string[] = [];
 
   parts.push(
-    "You are a manga recommendation engine. Below is a numbered list of REAL manga candidates. Your job is to pick the best 5 from THIS LIST ONLY, ranked best-first, based on quality and fit — do not invent or suggest anything not in this list."
+    "You are a master manga recommendation and matchmaking engine. Below is a numbered list of REAL manga candidates."
   );
 
   if (filters.genres.length > 0) {
     parts.push(
-      `Preferred genres/themes: ${filters.genres.join(", ")}. Every candidate below was already pulled from AniList specifically because it matches at least one of these — but some are AniList *themes* (e.g. Isekai, Harem, Seinen) rather than genres, so they will NOT always appear in a candidate's listed genres field; use the synopsis to judge theme fit instead of relying on the genres list alone. Favor candidates matching several of these, but don't treat this as a strict requirement — a great pick matching fewer is better than a mediocre pick matching all of them.`
+      `TARGET GENRES & THEMES (TOP PRIORITY): The user explicitly requested: [${filters.genres.join(", ")}]. ` +
+      `You MUST prioritize candidates that directly match or blend these requested genres/themes. ` +
+      `For example, if "Isekai", "Romance", and "Fantasy" are requested, candidates with an Isekai premise and romantic subplots MUST be ranked at the top. ` +
+      `Do NOT recommend off-genre or generic titles just because they have high ratings when closer matching candidates exist.`
     );
   }
   if (filters.completionStatus !== "any") {
@@ -53,7 +56,7 @@ function buildPrompt(
   }
   if (filters.chapterLength !== "any") {
     parts.push(
-      `Preferred chapter length: ${filters.chapterLength}. Use the chapters count shown per candidate where available; if unknown, use your judgment.`
+      `Preferred chapter length: ${filters.chapterLength}. Use the chapters count shown per candidate where available.`
     );
   }
 
@@ -61,7 +64,7 @@ function buildPrompt(
     const baseDescriptions = filters.baseManga
       .map(
         (m) =>
-          `"${m.title}" (genres: ${m.genres.join(", ")}; synopsis: ${
+          `"${m.title}" (genres/themes: ${m.genres.join(", ")}; synopsis: ${
             m.synopsis ?? "N/A"
           })`
       )
@@ -69,18 +72,18 @@ function buildPrompt(
 
     parts.push(
       filters.baseManga.length === 1
-        ? `Prioritize similarity to this manga: ${baseDescriptions}.`
-        : `Prioritize similarity to ALL of these manga collectively, finding common threads rather than matching just one: ${baseDescriptions}.`
+        ? `Anchor strongly on this favorite manga: ${baseDescriptions}. Find titles sharing its core appeal, premise, tone, or dynamics.`
+        : `Anchor collectively on these favorite manga: ${baseDescriptions}. Find titles reflecting their shared strengths.`
     );
   }
 
-  parts.push(
-    "All else equal, favor candidates with a higher score (indicating positive reception)."
-  );
-
   if (filters.diverge) {
     parts.push(
-      "Diverge somewhat from the closest matches — prefer picks that are more loosely related to the base manga/criteria, for variety rather than the most obvious picks."
+      "Diverge mode is ON: prefer creative or underappreciated hidden gems that still honor the requested themes."
+    );
+  } else {
+    parts.push(
+      "Within candidates that match the requested themes/anchors, favor higher quality titles (higher score)."
     );
   }
 
@@ -91,18 +94,16 @@ function buildPrompt(
   parts.push("\nCandidates:");
   candidates.forEach((c, i) => {
     parts.push(
-      `${i}. "${c.title}" — genres: ${c.genres.join(", ")}; status: ${
+      `${i}. "${c.title}" | Genres/Themes: ${c.genres.join(", ")} | Status: ${
         c.status ?? "unknown"
-      }; chapters: ${c.chapters ?? "unknown"}; score: ${
-        c.score ?? "unknown"
-      }/10; synopsis: ${(c.synopsis ?? "").slice(0, 200)}`
+      } | Score: ${c.score ?? "N/A"}/10 | Synopsis: ${(c.synopsis ?? "").slice(0, 160)}`
     );
   });
 
   parts.push(
     "\nRespond ONLY with a JSON array, no other text, no markdown code fences. " +
       'Each item must have this exact shape: { "index": number, "reason": string }, where "index" is the candidate\'s number from the list above. ' +
-      '"reason" should briefly explain why this pick fits, referencing the base manga/criteria. ' +
+      '"reason" should briefly explain why this pick fits, referencing the requested genres/themes. ' +
       "Return exactly 5 items, ranked best-first, using only indices from the list."
   );
 
@@ -157,22 +158,24 @@ export async function rankCandidates(
     throw new Error("Gemini response was not a JSON array of picks");
   }
 
-  // Guard against malformed, out-of-range, and repeated indices — a
-  // repeated index would surface the same manga twice in the results.
-  const seen = new Set<number>();
-  return parsed.filter((p): p is RankedPick => {
-    if (!p || typeof p !== "object") return false;
-    const { index, reason } = p as Partial<RankedPick>;
+  // Guard against malformed, out-of-range, and repeated indices
+  const validPicks: RankedPick[] = [];
+  const seenIndices = new Set<number>();
+
+  for (const item of parsed) {
     if (
-      typeof index !== "number" ||
-      !Number.isInteger(index) ||
-      typeof reason !== "string"
-    )
-      return false;
-    if (index < 0 || index >= candidates.length || seen.has(index)) {
-      return false;
+      typeof item === "object" &&
+      item !== null &&
+      typeof item.index === "number" &&
+      typeof item.reason === "string" &&
+      item.index >= 0 &&
+      item.index < candidates.length &&
+      !seenIndices.has(item.index)
+    ) {
+      validPicks.push({ index: item.index, reason: item.reason });
+      seenIndices.add(item.index);
     }
-    seen.add(index);
-    return true;
-  });
+  }
+
+  return validPicks;
 }

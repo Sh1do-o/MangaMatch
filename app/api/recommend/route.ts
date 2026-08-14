@@ -70,10 +70,11 @@ export async function POST(req: NextRequest) {
 
     let pool: MangaResult[] = [...rawPool];
 
-    // Merge in AniList's own community recommendations for each selected base manga
+    // Merge in AniList's own community recommendations for top 2 base manga
     if (baseMangaAnilistIds.length > 0) {
+      const targetBaseIds = baseMangaAnilistIds.slice(0, 2);
       const recLists = await Promise.all(
-        baseMangaAnilistIds.map((id) => getMediaRecommendations(id))
+        targetBaseIds.map((id) => getMediaRecommendations(id))
       );
       const seen = new Set(pool.map((m) => m.anilistId));
       for (const list of recLists) {
@@ -112,7 +113,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const candidatesForGemini: CandidateManga[] = pool.map((m) => ({
+    const topPool = pool.slice(0, 25);
+    const candidatesForGemini: CandidateManga[] = topPool.map((m) => ({
       anilistId: m.anilistId,
       title: m.title,
       genres: m.genres,
@@ -132,7 +134,7 @@ export async function POST(req: NextRequest) {
     });
 
     const recommendations = picks.slice(0, 5).map((pick) => {
-      const match = pool[pick.index];
+      const match = topPool[pick.index];
       return {
         title: match.title,
         synopsis: match.synopsis ?? "",
@@ -144,7 +146,8 @@ export async function POST(req: NextRequest) {
         status: match.status,
         siteUrl: match.siteUrl,
       };
-    }); 
+    });
+ 
 
     return NextResponse.json({ recommendations });
   } catch (err) {

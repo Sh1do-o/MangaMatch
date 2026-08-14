@@ -1,8 +1,5 @@
-// Helper functions for calling the AniList GraphQL API.
-// Docs: https://docs.anilist.co/
-// Official first-party API for AniList.co — no auth needed for public search.
 import { anilistStatusList } from "@/lib/filters";
-import { isGenre } from "@/lib/genres";
+import { isGenre, THEME_OPTIONS } from "@/lib/genres";
 
 export interface MangaResult {
   anilistId: number; // AniList numeric ID
@@ -32,6 +29,7 @@ interface AniListMedia {
   siteUrl: string | null;
   title: { romaji: string | null; english: string | null };
   genres: string[] | null;
+  tags?: { name: string; rank?: number | null }[] | null;
   coverImage: { extraLarge: string | null; large: string | null } | null;
   description: string | null;
   status: string | null;
@@ -52,6 +50,7 @@ const MEDIA_FIELDS = `
   siteUrl
   title { romaji english }
   genres
+  tags { name rank }
   coverImage { extraLarge large }
   description(asHtml: false)
   status
@@ -117,10 +116,17 @@ function mapMediaToResult(item: AniListMedia): MangaResult {
       ?.filter((e) => ["Story & Art", "Story", "Art"].includes(e.role))
       .map((e) => e.node.name.full) ?? [];
 
+  const matchedTags = (item.tags ?? [])
+    .filter((t) => (t.rank ?? 0) >= 40 || THEME_OPTIONS.includes(t.name))
+    .map((t) => t.name);
+  const combinedGenres = Array.from(
+    new Set([...(item.genres ?? []), ...matchedTags])
+  );
+
   return {
     anilistId: item.id,
     title: item.title.english ?? item.title.romaji ?? "",
-    genres: item.genres ?? [],
+    genres: combinedGenres,
     coverUrl: item.coverImage?.extraLarge ?? item.coverImage?.large ?? null,
     synopsis: stripHtml(item.description),
     status: item.status ?? null,
@@ -346,7 +352,7 @@ export async function getCandidatePool(
     selections.length > 0
       ? [
           ...selections.map((s) => buildRequest(s, false)),
-          ...selections.slice(0, 2).map((s) => buildRequest(s, true)),
+          ...selections.slice(0, 1).map((s) => buildRequest(s, true)),
         ]
       : [buildRequest(null, false), buildRequest(null, true)];
 
