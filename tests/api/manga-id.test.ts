@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const update = vi.fn();
+const findFirst = vi.fn();
 const destroy = vi.fn();
 vi.mock("@/lib/db", () => ({
   prisma: {
     manga: {
+      findFirst: (a: unknown) => findFirst(a),
       update: (a: unknown) => update(a),
       delete: (a: unknown) => destroy(a),
     },
@@ -24,6 +26,7 @@ function patchRequest(body: unknown) {
 const params = { params: Promise.resolve({ id: "7" }) };
 
 beforeEach(() => {
+  findFirst.mockResolvedValue({ id: 7, title: "Berserk" });
   update.mockResolvedValue({ id: 7 });
   destroy.mockResolvedValue({ id: 7 });
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -31,6 +34,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  findFirst.mockReset();
   update.mockReset();
   destroy.mockReset();
 });

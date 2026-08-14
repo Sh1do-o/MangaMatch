@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const update = vi.fn();
+const findFirst = vi.fn();
 vi.mock("@/lib/db", () => ({
-  prisma: { manga: { update: (a: unknown) => update(a) } },
+  prisma: {
+    manga: {
+      findFirst: (a: unknown) => findFirst(a),
+      update: (a: unknown) => update(a),
+    },
+  },
 }));
 
 const { POST, DELETE } = await import(
@@ -20,12 +26,14 @@ function request(method: string, body: unknown) {
 const params = { params: Promise.resolve({ id: "7" }) };
 
 beforeEach(() => {
+  findFirst.mockResolvedValue({ id: 7, title: "Berserk" });
   update.mockResolvedValue({ id: 7, categories: [{ id: 3 }] });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  findFirst.mockReset();
   update.mockReset();
 });
 

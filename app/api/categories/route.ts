@@ -1,8 +1,9 @@
-// GET  /api/categories        -> list all categories
-// POST /api/categories        -> create a new category { name, color? }
+// GET  /api/categories        -> list all categories for current session
+// POST /api/categories        -> create a new category { name, color? } for current session
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, errorResponse, serverError } from "@/lib/api";
+import { getSessionId } from "@/lib/session";
 import {
   MAX_TITLE_LENGTH,
   parseHexColor,
@@ -19,9 +20,11 @@ function isUniqueConstraintError(err: unknown): boolean {
   );
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const sessionId = await getSessionId(req);
     const categories = await prisma.category.findMany({
+      where: { sessionId },
       orderBy: { name: "asc" },
       include: { _count: { select: { manga: true } } },
     });
@@ -50,15 +53,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const sessionId = await getSessionId(req);
     const category = await prisma.category.create({
-      data: { name, color },
+      data: { sessionId, name, color },
     });
     return NextResponse.json({ success: true, category });
   } catch (err) {
-    // Unique constraint violation = category already exists.
-    // Checked via `.code` rather than `instanceof Prisma.PrismaClientKnownRequestError`,
-    // since that instanceof check can fail across module boundaries (and is
-    // awkward to construct in tests) even though `.code` is always reliable.
     if (isUniqueConstraintError(err)) {
       return errorResponse("A category with that name already exists", 409);
     }

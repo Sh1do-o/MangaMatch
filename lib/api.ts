@@ -14,6 +14,10 @@ export function badRequest(message: string) {
   return errorResponse(message, 400);
 }
 
+export function notFound(message = "Not found") {
+  return errorResponse(message, 404);
+}
+
 /**
  * Logs an unexpected error and returns a 500. Pass `withDetails` for
  * endpoints whose clients surface the underlying message to the user.

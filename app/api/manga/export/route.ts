@@ -1,13 +1,18 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getSessionId } from "@/lib/session";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const sessionId = await getSessionId(req);
+
     const [categories, mangaList] = await Promise.all([
       prisma.category.findMany({
+        where: { sessionId },
         orderBy: { name: "asc" },
       }),
       prisma.manga.findMany({
+        where: { sessionId },
         include: {
           categories: {
             select: { name: true },

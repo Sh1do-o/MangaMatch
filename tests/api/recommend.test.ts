@@ -140,7 +140,7 @@ describe("POST /api/recommend", () => {
     await POST(request({ baseMangaIds: ["3"] }));
 
     expect(findMany).toHaveBeenNthCalledWith(1, {
-      where: { id: { in: [3] } },
+      where: { id: { in: [3] }, sessionId: "default" },
     });
     expect(rankCandidates.mock.calls[0][1].baseManga).toEqual([
       { title: "Berserk", genres: ["Action", "Drama"], synopsis: "Dark fantasy" },

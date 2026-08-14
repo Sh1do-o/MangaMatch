@@ -1,8 +1,9 @@
 // POST /api/manga/add
-// Saves a manga (picked from search results) into the local database.
+// Saves a manga (picked from search results) into the database scoped to current session.
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, serverError } from "@/lib/api";
+import { getSessionId } from "@/lib/session";
 import {
   MAX_TEXT_LENGTH,
   MAX_TITLE_LENGTH,
@@ -21,8 +22,6 @@ export async function POST(req: NextRequest) {
     return badRequest("Invalid JSON body");
   }
 
-  // Accept anilistId as the canonical field; fall back to malId for
-  // backward compatibility during the transition period.
   const anilistId = parseOptionalInteger(body.anilistId ?? body.malId);
   const title = parseString(body.title, MAX_TITLE_LENGTH);
   const genres = parseStringArray(body.genres, MAX_TITLE_LENGTH);
@@ -35,10 +34,18 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const sessionId = await getSessionId(req);
+
     const manga = await prisma.manga.upsert({
-      where: { anilistId },
+      where: {
+        sessionId_anilistId: {
+          sessionId,
+          anilistId,
+        },
+      },
       update: {}, // if it already exists, do nothing — just confirm success
       create: {
+        sessionId,
         anilistId,
         title,
         genres: genres.join(","),

@@ -2,11 +2,7 @@
 // Pulls a real candidate pool from AniList (broad, filtered only by
 // completion status server-side), then asks Gemini to rank the best 5
 // from that real list using genre/chapter-length/base-manga similarity
-// as soft preferences — rather than either inventing titles from memory,
-// or over-narrowing the pool with hard AniList-side filters that can
-// silently zero it out (genre_in requires ALL listed genres at once,
-// and chapter filters exclude anything with an unknown chapter count,
-// which is common for ongoing series).
+// as soft preferences.
 import { NextRequest, NextResponse } from "next/server";
 import { rankCandidates, type CandidateManga } from "@/lib/gemini";
 import {
@@ -18,6 +14,7 @@ import { prisma } from "@/lib/db";
 import { serverError } from "@/lib/api";
 import { parseList } from "@/lib/manga";
 import { matchesChapterLength, matchesCompletionStatus } from "@/lib/filters";
+import { getSessionId } from "@/lib/session";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -35,12 +32,13 @@ export async function POST(req: NextRequest) {
   } = body;
 
   try {
+    const sessionId = await getSessionId(req);
     let baseManga: { title: string; genres: string[]; synopsis: string | null }[] = [];
     let baseMangaAnilistIds: number[] = [];
 
     if (baseMangaIds.length > 0) {
       const mangaList = await prisma.manga.findMany({
-        where: { id: { in: baseMangaIds.map(Number) } },
+        where: { id: { in: baseMangaIds.map(Number) }, sessionId },
       });
       baseManga = mangaList.map((manga) => ({
         title: manga.title,
@@ -50,8 +48,9 @@ export async function POST(req: NextRequest) {
       baseMangaAnilistIds = mangaList.map((manga) => manga.anilistId);
     }
 
-    // Exclude everything already in the library
+    // Exclude everything already in the user's session library
     const libraryManga = await prisma.manga.findMany({
+      where: { sessionId },
       select: { title: true },
     });
     const excludeTitlesLower = new Set(
@@ -61,9 +60,7 @@ export async function POST(req: NextRequest) {
     );
 
     // Candidate pool — one query per selected genre/theme, so genre acts
-    // as "any of these"; only completion status is a hard filter. `page`
-    // lets "Suggest More"/"Diverge" reach past round 1's candidates
-    // instead of re-ranking the same pool with fewer options each time.
+    // as "any of these"; only completion status is a hard filter.
     const rawPool = await getCandidatePool({
       genres,
       completionStatus,
@@ -73,9 +70,7 @@ export async function POST(req: NextRequest) {
 
     let pool: MangaResult[] = [...rawPool];
 
-    // Merge in AniList's own community "if you liked this, try that"
-    // recommendations for each selected base manga — a stronger
-    // similarity signal than genre-matching alone.
+    // Merge in AniList's own community recommendations for each selected base manga
     if (baseMangaAnilistIds.length > 0) {
       const recLists = await Promise.all(
         baseMangaAnilistIds.map((id) => getMediaRecommendations(id))
@@ -91,20 +86,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Lenient client-side pass: only excludes candidates whose chapter
-    // count or status is definitively known and out of range — never
-    // punishes unknown/missing data.
+    // Lenient pass: only excludes candidates out of range
     pool = pool.filter(
       (m) =>
         matchesCompletionStatus(m.status, completionStatus) &&
         matchesChapterLength(m.chapters, chapterLength)
     );
 
-    // Filter out anything already in the library or already seen this session
+    // Filter out anything already in the session library or already seen this session
     pool = pool.filter((m) => !excludeTitlesLower.has(m.title.toLowerCase()));
 
-    // Best-effort content rating filter — AniList doesn't expose a granular
-    // rating field, so this is a genre-based heuristic, not a hard guarantee
     if (contentRating === "safe") {
       pool = pool.filter(
         (m) => !m.genres.includes("Hentai") && !m.genres.includes("Ecchi")

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getSessionId } from "@/lib/session";
 
 interface ImportedMangaEntry {
   anilistId: number;
@@ -28,6 +29,7 @@ interface BackupPayload {
 
 export async function POST(req: NextRequest) {
   try {
+    const sessionId = await getSessionId(req);
     const body = (await req.json()) as BackupPayload & { mode?: "merge" | "replace" };
     const mode = body.mode === "replace" ? "replace" : "merge";
 
@@ -46,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     await prisma.$transaction(async (tx) => {
       if (mode === "replace") {
-        await tx.manga.deleteMany();
+        await tx.manga.deleteMany({ where: { sessionId } });
       }
 
       // Pre-create any categories mentioned in categories list or individual manga
@@ -66,11 +68,28 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      const categoryMap = new Map<string, number>();
+
       for (const name of categoryNamesToEnsure) {
-        const existing = await tx.category.findUnique({ where: { name } });
+        const existing = await tx.category.findUnique({
+          where: {
+            sessionId_name: {
+              sessionId,
+              name,
+            },
+          },
+        });
         if (!existing) {
-          await tx.category.create({ data: { name } });
+          const created = await tx.category.create({
+            data: {
+              sessionId,
+              name,
+            },
+          });
+          categoryMap.set(name, created.id);
           createdCategoriesCount++;
+        } else {
+          categoryMap.set(name, existing.id);
         }
       }
 
@@ -80,19 +99,25 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        const validCategories = Array.isArray(item.categories)
+        const validCategoryIds = Array.isArray(item.categories)
           ? item.categories
-              .filter((c): c is string => typeof c === "string" && Boolean(c.trim()))
-              .map((c) => ({ name: c.trim() }))
+              .map((c) => (typeof c === "string" ? categoryMap.get(c.trim()) : undefined))
+              .filter((id): id is number => id !== undefined)
+              .map((id) => ({ id }))
           : [];
 
         const existing = await tx.manga.findUnique({
-          where: { anilistId: item.anilistId },
+          where: {
+            sessionId_anilistId: {
+              sessionId,
+              anilistId: item.anilistId,
+            },
+          },
         });
 
         if (existing) {
           await tx.manga.update({
-            where: { anilistId: item.anilistId },
+            where: { id: existing.id },
             data: {
               title: item.title,
               genres: item.genres ?? existing.genres,
@@ -108,9 +133,9 @@ export async function POST(req: NextRequest) {
               volumes: item.volumes ?? existing.volumes,
               malScore: item.malScore ?? existing.malScore,
               siteUrl: item.siteUrl ?? existing.siteUrl,
-              ...(validCategories.length > 0 && {
+              ...(validCategoryIds.length > 0 && {
                 categories: {
-                  set: validCategories,
+                  set: validCategoryIds,
                 },
               }),
             },
@@ -119,6 +144,7 @@ export async function POST(req: NextRequest) {
         } else {
           await tx.manga.create({
             data: {
+              sessionId,
               anilistId: item.anilistId,
               title: item.title,
               genres: item.genres ?? "",
@@ -135,7 +161,7 @@ export async function POST(req: NextRequest) {
               malScore: item.malScore ?? null,
               siteUrl: item.siteUrl ?? null,
               categories: {
-                connect: validCategories,
+                connect: validCategoryIds,
               },
             },
           });

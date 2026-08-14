@@ -1,10 +1,11 @@
-// PATCH /api/manga/[id]   -> { readingStatus } updates reading status
+// PATCH /api/manga/[id]   -> { readingStatus, rating } updates reading status or rating
 // DELETE /api/manga/[id]  -> removes a manga from the library
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { badRequest, serverError, type IdRouteContext } from "@/lib/api";
+import { badRequest, notFound, serverError, type IdRouteContext } from "@/lib/api";
 import { READING_STATUS_VALUES } from "@/lib/manga";
 import { parseId, readJsonBody } from "@/lib/validation";
+import { getSessionId } from "@/lib/session";
 
 export async function PATCH(req: Request, { params }: IdRouteContext) {
   const { id } = await params;
@@ -45,6 +46,15 @@ export async function PATCH(req: Request, { params }: IdRouteContext) {
   }
 
   try {
+    const sessionId = await getSessionId(req);
+    const existing = await prisma.manga.findFirst({
+      where: { id: mangaId, sessionId },
+    });
+
+    if (!existing) {
+      return notFound("Manga not found in current library");
+    }
+
     const manga = await prisma.manga.update({
       where: { id: mangaId },
       data,
@@ -63,6 +73,15 @@ export async function DELETE(req: Request, { params }: IdRouteContext) {
   }
 
   try {
+    const sessionId = await getSessionId(req);
+    const existing = await prisma.manga.findFirst({
+      where: { id: mangaId, sessionId },
+    });
+
+    if (!existing) {
+      return notFound("Manga not found in current library");
+    }
+
     await prisma.manga.delete({ where: { id: mangaId } });
     return NextResponse.json({ success: true });
   } catch (err) {

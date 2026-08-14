@@ -1,8 +1,9 @@
-// DELETE /api/categories/[id]  -> delete a category (removes it from all manga automatically)
+// DELETE /api/categories/[id]  -> delete a category (scoped to session)
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { badRequest, serverError, type IdRouteContext } from "@/lib/api";
+import { badRequest, notFound, serverError, type IdRouteContext } from "@/lib/api";
 import { parseId } from "@/lib/validation";
+import { getSessionId } from "@/lib/session";
 
 export async function DELETE(req: Request, { params }: IdRouteContext) {
   const { id } = await params;
@@ -12,6 +13,15 @@ export async function DELETE(req: Request, { params }: IdRouteContext) {
   }
 
   try {
+    const sessionId = await getSessionId(req);
+    const existing = await prisma.category.findFirst({
+      where: { id: categoryId, sessionId },
+    });
+
+    if (!existing) {
+      return notFound("Category not found in current session");
+    }
+
     await prisma.category.delete({ where: { id: categoryId } });
     return NextResponse.json({ success: true });
   } catch (err) {

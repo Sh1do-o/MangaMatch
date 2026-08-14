@@ -1,6 +1,6 @@
 // Typed wrappers around this app's API routes, so the URL, method and
 // payload shape of each endpoint is defined in exactly one place.
-import { fetchJson, jsonRequest } from "@/lib/http";
+import { fetchJson, jsonRequest, getClientSessionId } from "@/lib/http";
 import type { Category, SavedManga } from "@/lib/types";
 import type { MangaResult } from "@/lib/anilist";
 
@@ -68,7 +68,12 @@ export interface ImportResult {
 }
 
 export async function exportLibrary(): Promise<void> {
-  const response = await fetch("/api/manga/export");
+  const sessionId = getClientSessionId();
+  const headers = new Headers();
+  if (sessionId && sessionId !== "default") {
+    headers.set("x-session-id", sessionId);
+  }
+  const response = await fetch("/api/manga/export", { headers });
   if (!response.ok) {
     throw new Error("Failed to export library");
   }

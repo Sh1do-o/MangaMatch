@@ -1,5 +1,5 @@
 // Prisma schema — defines the Manga model and SQLite datasource.
-// Supports both local file:./dev.db and Turso cloud libSQL (libsql://...) via Prisma driver adapter.
+// Supports multi-session isolation (guest sessions) and Turso cloud libSQL on Vercel.
 
 generator client {
   provider = "prisma-client-js"
@@ -12,12 +12,13 @@ datasource db {
 
 model Manga {
   id                Int      @id @default(autoincrement())
-  anilistId         Int      @unique // AniList numeric ID, prevents duplicate adds
+  sessionId         String   @default("default")
+  anilistId         Int
   title             String
-  genres            String   // stored as comma-separated for now
+  genres            String   // stored as comma-separated
   coverUrl          String?
   synopsis          String?
-  publicationStatus String?  // e.g. "Publishing", "Finished" — from AniList
+  publicationStatus String?  // e.g. "Publishing", "Finished"
   readingStatus     String   @default("planning") // "reading" | "completed" | "planning"
   rating            Int?
   authors           String?  // comma-separated
@@ -30,12 +31,19 @@ model Manga {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @default(now()) @updatedAt
   categories        Category[]
+
+  @@unique([sessionId, anilistId])
+  @@index([sessionId])
 }
 
 model Category {
   id        Int      @id @default(autoincrement())
-  name      String   @unique
+  sessionId String   @default("default")
+  name      String
   color     String   @default("#E8C77E") // hex color for the tag chip
   createdAt DateTime @default(now())
   manga     Manga[]
+
+  @@unique([sessionId, name])
+  @@index([sessionId])
 }

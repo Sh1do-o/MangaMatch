@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const findMany = vi.fn();
+const findFirst = vi.fn();
 const create = vi.fn();
 const destroy = vi.fn();
 vi.mock("@/lib/db", () => ({
   prisma: {
     category: {
       findMany: (a: unknown) => findMany(a),
+      findFirst: (a: unknown) => findFirst(a),
       create: (a: unknown) => create(a),
       delete: (a: unknown) => destroy(a),
     },
@@ -16,6 +18,10 @@ vi.mock("@/lib/db", () => ({
 
 const { GET, POST } = await import("@/app/api/categories/route");
 const { DELETE } = await import("@/app/api/categories/[id]/route");
+
+function getRequest() {
+  return new NextRequest("http://localhost/api/categories");
+}
 
 function postRequest(body: unknown) {
   return new NextRequest("http://localhost/api/categories", {
@@ -27,6 +33,7 @@ function postRequest(body: unknown) {
 
 beforeEach(() => {
   findMany.mockResolvedValue([{ id: 1, name: "Favorites", _count: { manga: 2 } }]);
+  findFirst.mockResolvedValue({ id: 1, name: "Favorites" });
   create.mockResolvedValue({ id: 1, name: "Favorites" });
   destroy.mockResolvedValue({ id: 1 });
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -35,15 +42,17 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   findMany.mockReset();
+  findFirst.mockReset();
   create.mockReset();
   destroy.mockReset();
 });
 
 describe("GET /api/categories", () => {
   it("lists categories alphabetically with manga counts", async () => {
-    const res = await GET();
+    const res = await GET(getRequest());
 
     expect(findMany).toHaveBeenCalledWith({
+      where: { sessionId: "default" },
       orderBy: { name: "asc" },
       include: { _count: { select: { manga: true } } },
     });
@@ -56,7 +65,7 @@ describe("GET /api/categories", () => {
   it("500s when the query fails", async () => {
     findMany.mockRejectedValue(new Error("db down"));
 
-    const res = await GET();
+    const res = await GET(getRequest());
 
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "Failed to load categories" });
@@ -81,7 +90,7 @@ describe("POST /api/categories", () => {
     const res = await POST(postRequest({ name: "  Favorites  " }));
 
     expect(create).toHaveBeenCalledWith({
-      data: { name: "Favorites", color: "#E8C77E" },
+      data: { sessionId: "default", name: "Favorites", color: "#E8C77E" },
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
@@ -94,7 +103,7 @@ describe("POST /api/categories", () => {
     await POST(postRequest({ name: "Favorites", color: "#ff0000" }));
 
     expect(create).toHaveBeenCalledWith({
-      data: { name: "Favorites", color: "#ff0000" },
+      data: { sessionId: "default", name: "Favorites", color: "#ff0000" },
     });
   });
 

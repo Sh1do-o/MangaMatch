@@ -9,7 +9,7 @@ const txCategoryCreate = vi.fn();
 const txMangaFindUnique = vi.fn();
 const txMangaUpdate = vi.fn();
 const txMangaCreate = vi.fn();
-const txCallback = vi.fn(async (cb: (tx: any) => Promise<any>) => {
+const txCallback = vi.fn(async (cb: any) => {
   return cb({
     manga: {
       deleteMany: txDeleteMany,
@@ -26,7 +26,7 @@ const txCallback = vi.fn(async (cb: (tx: any) => Promise<any>) => {
 
 vi.mock("@/lib/db", () => ({
   prisma: {
-    category: { findMany: () => categoryFindMany() },
+    category: { findMany: (a: unknown) => categoryFindMany(a) },
     manga: { findMany: (a: unknown) => mangaFindMany(a) },
     $transaction: (cb: any) => txCallback(cb),
   },
@@ -34,6 +34,10 @@ vi.mock("@/lib/db", () => ({
 
 const { GET } = await import("@/app/api/manga/export/route");
 const { POST } = await import("@/app/api/manga/import/route");
+
+function getExportRequest() {
+  return new NextRequest("http://localhost/api/manga/export");
+}
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -77,7 +81,7 @@ describe("GET /api/manga/export", () => {
       },
     ]);
 
-    const res = await GET();
+    const res = await GET(getExportRequest());
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/json");
 
@@ -95,7 +99,7 @@ describe("GET /api/manga/export", () => {
 
   it("returns 500 when database export query fails", async () => {
     categoryFindMany.mockRejectedValue(new Error("db down"));
-    const res = await GET();
+    const res = await GET(getExportRequest());
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "Failed to export library backup" });
   });
@@ -153,7 +157,9 @@ describe("POST /api/manga/import", () => {
     });
 
     expect(txDeleteMany).not.toHaveBeenCalled();
-    expect(txCategoryCreate).toHaveBeenCalledWith({ data: { name: "Classics" } });
+    expect(txCategoryCreate).toHaveBeenCalledWith({
+      data: { sessionId: "default", name: "Classics" },
+    });
     expect(txMangaCreate).toHaveBeenCalled();
   });
 
@@ -213,6 +219,6 @@ describe("POST /api/manga/import", () => {
 
     const res = await POST(req);
     expect(res.status).toBe(200);
-    expect(txDeleteMany).toHaveBeenCalled();
+    expect(txDeleteMany).toHaveBeenCalledWith({ where: { sessionId: "default" } });
   });
 });

@@ -67,9 +67,15 @@ describe("POST /api/manga/add", () => {
       manga: { id: 1, anilistId: 30002, title: "Berserk" },
     });
     expect(upsert).toHaveBeenCalledWith({
-      where: { anilistId: 30002 },
+      where: {
+        sessionId_anilistId: {
+          sessionId: "default",
+          anilistId: 30002,
+        },
+      },
       update: {},
       create: {
+        sessionId: "default",
         anilistId: 30002,
         title: "Berserk",
         genres: "Action,Drama",
@@ -101,6 +107,7 @@ describe("POST /api/manga/add", () => {
     );
 
     expect(upsert.mock.calls[0][0].create).toMatchObject({
+      sessionId: "default",
       genres: "",
       authors: null,
       publishedFrom: null,
