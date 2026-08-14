@@ -629,7 +629,7 @@ export default function LibraryPage() {
                 <h3 className="mb-2 font-[family-name:var(--font-display)] text-xl font-bold text-[#F5F5F0]">
                   Your Library is Empty
                 </h3>
-                <p className="mb-6 max-w-sm text-sm text-[#8CA0BE]">
+                <p className="mb-6 mx-auto max-w-sm text-sm text-[#8CA0BE]">
                   Add manga from search or use the AI recommender to start tracking what you read.
                 </p>
                 <div className="flex justify-center gap-3">
