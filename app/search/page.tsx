@@ -7,6 +7,7 @@ import PageHeader from "@/components/PageHeader";
 import ErrorBanner from "@/components/ErrorBanner";
 import EmptyState from "@/components/EmptyState";
 import Modal from "@/components/Modal";
+import Toast from "@/components/Toast";
 import CoverImage from "@/components/CoverImage";
 import Chip from "@/components/Chip";
 import TogglePill from "@/components/TogglePill";
@@ -21,12 +22,12 @@ import { fetchJson } from "@/lib/http";
 import { BROWSE_GENRES } from "@/lib/genres";
 import { toggleSetItem } from "@/lib/manga";
 import type { Category } from "@/lib/types";
-import { cn, BUTTON_PRIMARY, BUTTON_SECONDARY } from "@/lib/ui";
+import { cn, BUTTON_PRIMARY, BUTTON_SECONDARY, statusBadge } from "@/lib/ui";
 
-const BROWSE_TABS: { value: BrowseSort; label: string }[] = [
-  { value: "trending", label: "🔥 Trending Now" },
-  { value: "popular", label: "⭐ All-Time Popular" },
-  { value: "top-rated", label: "🏆 Top Rated" },
+const BROWSE_TABS: { value: BrowseSort; label: string; icon: string }[] = [
+  { value: "trending", label: "Trending Now", icon: "🔥" },
+  { value: "popular", label: "All-Time Popular", icon: "⭐" },
+  { value: "top-rated", label: "Top Rated", icon: "🏆" },
 ];
 
 export default function SearchPage() {
@@ -41,6 +42,7 @@ export default function SearchPage() {
   const [pendingManga, setPendingManga] = useState<MangaResult | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [confirmingAdd, setConfirmingAdd] = useState(false);
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
 
   useEffect(() => {
     fetchCategories()
@@ -58,7 +60,7 @@ export default function SearchPage() {
   const browseResults = browseCache[browseKey];
 
   useEffect(() => {
-    if (browseCache[browseKey]) return; // already fetched, reuse from cache
+    if (browseCache[browseKey]) return;
 
     setBrowseLoading(true);
     setBrowseError(null);
@@ -116,8 +118,16 @@ export default function SearchPage() {
       if (selectedCategoryId && saved?.id) {
         await setMangaCategory(saved.id, selectedCategoryId, false);
       }
+      setToastMessage({
+        text: `Added "${manga.title}" to your library!`,
+        type: "success",
+      });
     } catch {
       setAddedIds((prev) => toggleSetItem(prev, targetId));
+      setToastMessage({
+        text: "Failed to add manga to library.",
+        type: "error",
+      });
     } finally {
       setConfirmingAdd(false);
       setPendingManga(null);
@@ -127,78 +137,102 @@ export default function SearchPage() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#0B1220] text-[#F5F5F0]">
       <AmbientBackground
-        primary="-top-20 right-1/3 h-[450px] w-[450px] blur-[130px]"
-        secondary="-bottom-32 left-1/4 h-[400px] w-[400px] blur-[100px]"
+        primary="-top-20 right-1/3 h-[500px] w-[500px] blur-[150px]"
+        secondary="-bottom-32 left-1/4 h-[450px] w-[450px] blur-[120px]"
       />
 
-      <div className="mx-auto max-w-6xl px-6 py-16">
+      {toastMessage && (
+        <Toast
+          message={toastMessage.text}
+          type={toastMessage.type}
+          onClose={() => setToastMessage(null)}
+        />
+      )}
+
+      <div className="mx-auto max-w-[1400px] px-6 py-10">
         <PageHeader
-          eyebrow="Library / Search"
-          title="Find your next read"
-          description="Search by title. Add anything you're reading, have read, or want to track — this builds the library your recommendations are based on."
+          eyebrow="Discover"
+          title="Search & Browse AniList"
+          description="Explore trending manga, popular classics, and top-rated masterworks. Add anything you want to track to your personal library."
         />
 
-        {/* Search bar with glassmorphism and glow */}
-        <form onSubmit={handleSearch} className="animate-fade-in-up mb-10 flex gap-3" style={{ animationDelay: "0.1s" }}>
+        {/* Search Bar */}
+        <form onSubmit={handleSearch} className="animate-fade-in-up mb-8 flex gap-3" style={{ animationDelay: "0.08s" }}>
           <div className="group relative flex-1">
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="e.g. Vagabond, Vinland Saga, Berserk..."
-              className="w-full rounded-full border border-[#1E2C42] bg-[#0F1B2E]/80 px-5 py-3.5 pl-12 text-sm text-[#F5F5F0] placeholder:text-[#8CA0BE] outline-none backdrop-blur-sm transition-all duration-300 focus:border-[#E8C77E]/50 focus:shadow-[0_0_25px_rgba(232,199,126,0.15)]"
+              placeholder="Search by title (e.g. Chainsaw Man, Monster, Vinland Saga)..."
+              className="w-full rounded-2xl border border-[#1E2C42] bg-[#0F1B2E]/90 px-5 py-3.5 pl-12 pr-10 text-sm text-[#F5F5F0] placeholder:text-[#8CA0BE] outline-none backdrop-blur-md transition-all duration-300 focus:border-[#E8C77E]/60 focus:shadow-[0_0_30px_rgba(232,199,126,0.15)]"
             />
-            {/* Search icon inside input */}
             <svg
-              className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8CA0BE] transition-colors duration-300 group-focus-within:text-[#E8C77E]"
+              className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8CA0BE] transition-colors duration-300 group-focus-within:text-[#E8C77E]"
               fill="none"
               stroke="currentColor"
               strokeWidth="2"
               viewBox="0 0 24 24"
-              strokeLinecap="round"
-              strokeLinejoin="round"
             >
               <circle cx="11" cy="11" r="8" />
               <path d="m21 21-4.3-4.3" />
             </svg>
+            {query && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setHasSearched(false);
+                  setResults([]);
+                }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-mono text-[#8CA0BE] hover:text-white"
+              >
+                ✕ Clear
+              </button>
+            )}
           </div>
           <button
             type="submit"
-            disabled={loading}
-            className="rounded-full bg-[#F5F5F0] px-7 py-3.5 text-sm font-semibold text-[#0B1220] transition-all duration-300 hover:shadow-[0_0_30px_rgba(245,245,240,0.4)] active:scale-95 disabled:opacity-50"
+            disabled={loading || !query.trim()}
+            className={cn(BUTTON_PRIMARY, "px-7 py-3.5 text-xs font-bold shrink-0")}
           >
             {loading ? "Searching..." : "Search"}
           </button>
         </form>
 
         {error && (
-          <ErrorBanner className="animate-fade-in-up mb-10 shadow-lg">
+          <ErrorBanner className="animate-fade-in-up mb-8 shadow-xl">
             <span className="font-semibold">Error:</span> {error}
           </ErrorBanner>
         )}
 
-        {loading && <MangaCardSkeletons className="mb-10" lines={3} />}
+        {loading && <MangaCardSkeletons count={10} />}
 
-        {/* Browse — shown before any search has been made */}
+        {/* Browse Section */}
         {!hasSearched && !error && (
           <div className="animate-fade-in-up">
-            {/* Tabs */}
-            <div className="mb-4 flex flex-wrap gap-2">
+            {/* Browse Tabs */}
+            <div className="mb-4 flex flex-wrap gap-2 border-b border-[#1E2C42]/80 pb-4">
               {BROWSE_TABS.map((tab) => (
-                <TogglePill
+                <button
                   key={tab.value}
-                  active={browseTab === tab.value}
                   onClick={() => setBrowseTab(tab.value)}
-                  accent="gold"
-                  className="px-4 py-2 text-xs"
+                  className={`flex items-center gap-2 rounded-full px-4 py-2 font-mono text-xs uppercase tracking-wider transition-all duration-200 ${
+                    browseTab === tab.value
+                      ? "bg-[#E8C77E] font-bold text-[#0B1220] shadow-[0_0_20px_rgba(232,199,126,0.3)]"
+                      : "border border-[#1E2C42] bg-[#0F1B2E]/60 text-[#8CA0BE] hover:border-[#E8C77E]/40 hover:text-[#F5F5F0]"
+                  }`}
                 >
-                  {tab.label}
-                </TogglePill>
+                  <span>{tab.icon}</span>
+                  <span>{tab.label}</span>
+                </button>
               ))}
             </div>
 
-            {/* Genre filter — layers on top of whichever tab is active */}
-            <div className="mb-8 flex flex-wrap gap-1.5">
+            {/* Genre Filter Pills */}
+            <div className="mb-8 flex flex-wrap items-center gap-1.5">
+              <span className="font-mono text-[10px] uppercase text-[#8CA0BE] mr-1">
+                Genre:
+              </span>
               {BROWSE_GENRES.map((genre) => (
                 <TogglePill
                   key={genre}
@@ -216,13 +250,13 @@ export default function SearchPage() {
             )}
 
             {browseLoading ? (
-              <MangaCardSkeletons />
+              <MangaCardSkeletons count={10} />
             ) : browseResults && browseResults.length > 0 ? (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-4.5">
                 {browseResults.map((manga, i) => {
                   const mId = manga.anilistId;
                   return (
-                    <MangaCard
+                    <MangaPosterCard
                       key={mId}
                       manga={manga}
                       index={i}
@@ -234,9 +268,9 @@ export default function SearchPage() {
               </div>
             ) : (
               !browseError && (
-                <EmptyState className="py-20">
+                <EmptyState>
                   <p className="text-sm text-[#8CA0BE]">
-                    No results for this combination. Try a different genre.
+                    No manga found for this genre. Try selecting "All".
                   </p>
                 </EmptyState>
               )
@@ -244,33 +278,54 @@ export default function SearchPage() {
           </div>
         )}
 
-        {/* No results found for an actual search */}
+        {/* Search Empty State */}
         {hasSearched && !loading && !error && results.length === 0 && (
-          <EmptyState className="animate-fade-in-up py-20">
-            <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full border border-[#1E2C42] bg-[#0F1B2E]">
-              <svg className="h-8 w-8 text-[#E8C77E]/60" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-              </svg>
+          <EmptyState>
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-[#1E2C42] bg-[#0F1B2E] text-2xl">
+              🔍
             </div>
-            <p className="mb-2 font-semibold text-[#F5F5F0]">No results found</p>
-            <p className="text-sm text-[#8CA0BE]">
-              Try a different title or check the spelling.
+            <h3 className="mb-2 font-[family-name:var(--font-display)] text-xl font-bold text-[#F5F5F0]">
+              No results found
+            </h3>
+            <p className="mb-4 text-sm text-[#8CA0BE]">
+              We couldn't find any manga matching "{query}".
             </p>
+            <button
+              onClick={() => {
+                setQuery("");
+                setHasSearched(false);
+              }}
+              className={cn(BUTTON_SECONDARY, "px-5 py-2 text-xs")}
+            >
+              Back to Browse
+            </button>
           </EmptyState>
         )}
 
-        {/* Results grid */}
+        {/* Search Results */}
         {results.length > 0 && (
           <>
-            <ResultsHeader style={{ animationDelay: "0.1s" }}>
-              {results.length} result{results.length !== 1 ? "s" : ""}
-            </ResultsHeader>
+            <div className="mb-6 flex items-center justify-between">
+              <ResultsHeader>
+                Found {results.length} result{results.length !== 1 ? "s" : ""} for "{query}"
+              </ResultsHeader>
+              <button
+                onClick={() => {
+                  setQuery("");
+                  setHasSearched(false);
+                  setResults([]);
+                }}
+                className="font-mono text-xs text-[#E8C77E] hover:underline"
+              >
+                ← Back to Browse
+              </button>
+            </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-4.5">
               {results.map((manga, i) => {
                 const mId = manga.anilistId;
                 return (
-                  <MangaCard
+                  <MangaPosterCard
                     key={mId}
                     manga={manga}
                     index={i}
@@ -284,13 +339,13 @@ export default function SearchPage() {
         )}
       </div>
 
-      {/* Category picker modal — shown when adding to library */}
+      {/* Category picker modal when adding to library */}
       {pendingManga && (
-        <Modal title="Add to library">
-          <div>
-            <p className="mb-5 text-sm text-[#8CA0BE]">
-              Adding <span className="text-[#F5F5F0]">{pendingManga.title}</span>.
-              {categories.length > 0 && " Pick a category, or skip."}
+        <Modal title="Add to Library">
+          <div className="mt-2">
+            <p className="mb-4 text-sm leading-relaxed text-[#8CA0BE]">
+              Adding <span className="font-semibold text-[#F5F5F0]">{pendingManga.title}</span>.
+              {categories.length > 0 ? " Assign a category tag, or add directly:" : ""}
             </p>
 
             {categories.length > 0 && (
@@ -298,8 +353,9 @@ export default function SearchPage() {
                 <TogglePill
                   active={selectedCategoryId === null}
                   onClick={() => setSelectedCategoryId(null)}
+                  className="text-xs"
                 >
-                  No Category
+                  No Tag
                 </TogglePill>
                 {categories.map((cat) => (
                   <TogglePill
@@ -307,8 +363,9 @@ export default function SearchPage() {
                     active={selectedCategoryId === cat.id}
                     onClick={() => setSelectedCategoryId(cat.id)}
                     accent="gold"
+                    className="text-xs"
                   >
-                    {cat.name}
+                    🏷️ {cat.name}
                   </TogglePill>
                 ))}
               </div>
@@ -316,18 +373,18 @@ export default function SearchPage() {
 
             <div className="flex gap-3">
               <button
-                onClick={confirmAdd}
-                disabled={confirmingAdd}
-                className={cn(BUTTON_PRIMARY, "flex-1 px-4 py-2.5")}
-              >
-                {confirmingAdd ? "Adding..." : "Add"}
-              </button>
-              <button
                 onClick={() => setPendingManga(null)}
                 disabled={confirmingAdd}
-                className={cn(BUTTON_SECONDARY, "flex-1 px-4 py-2.5")}
+                className={cn(BUTTON_SECONDARY, "flex-1 py-2.5 text-xs")}
               >
                 Cancel
+              </button>
+              <button
+                onClick={confirmAdd}
+                disabled={confirmingAdd}
+                className={cn(BUTTON_PRIMARY, "flex-1 py-2.5 text-xs font-bold")}
+              >
+                {confirmingAdd ? "Adding..." : "+ Save to Library"}
               </button>
             </div>
           </div>
@@ -337,7 +394,7 @@ export default function SearchPage() {
   );
 }
 
-function MangaCard({
+function MangaPosterCard({
   manga,
   index,
   isAdded,
@@ -348,54 +405,81 @@ function MangaCard({
   isAdded: boolean;
   onAdd: (manga: MangaResult) => void;
 }) {
+  const statusInfo = statusBadge(manga.status);
+  const mangafireUrl = `https://mangafire.to/browse?keyword=${encodeURIComponent(manga.title)}&sort=relevance:desc`;
+
   return (
     <div
-      style={{ animationDelay: `${Math.min(index, 10) * 0.05}s` }}
-      className="animate-fade-in-up group flex flex-col overflow-hidden rounded-xl border-2 border-[#1E2C42] bg-[#0F1B2E] shadow-lg transition-all duration-300 hover:-translate-y-1 hover:border-[#E8C77E]/40 hover:shadow-[0_10px_40px_rgba(232,199,126,0.15)]"
+      style={{ animationDelay: `${Math.min(index, 12) * 0.04}s` }}
+      className="animate-fade-in-up group flex flex-col overflow-hidden rounded-2xl border border-[#1E2C42] bg-[#0F1B2E]/90 shadow-lg backdrop-blur-md transition-all duration-300 hover:-translate-y-1.5 hover:border-[#E8C77E]/60 hover:shadow-[0_15px_35px_rgba(232,199,126,0.18)]"
     >
-      {/* Cover */}
+      {/* 2:3 Cover Poster */}
       <div className="relative aspect-[2/3] w-full overflow-hidden bg-[#0B1220]">
         <CoverImage
           src={manga.coverUrl}
           alt={manga.title}
           imgClassName="transition-transform duration-500 group-hover:scale-105"
         />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0B1220]/80 via-transparent to-transparent" />
-        {/* Shimmer sweep on hover */}
-        <div className="animate-shimmer absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
-      </div>
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0F1B2E] via-transparent to-black/40" />
 
-      {/* Info */}
-      <div className="flex flex-1 flex-col gap-3 p-4">
-        <h3 className="font-[family-name:var(--font-display)] text-base font-semibold leading-snug">
-          {manga.title}
-        </h3>
+        {/* Status tag */}
+        <div className="absolute left-2 top-2">
+          <span
+            className={`rounded-full border px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider backdrop-blur-md ${statusInfo.className}`}
+          >
+            {statusInfo.label}
+          </span>
+        </div>
 
-        {manga.genres.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {manga.genres.slice(0, 3).map((genre) => (
-              <Chip key={genre}>{genre}</Chip>
-            ))}
+        {/* Score badge */}
+        {manga.score !== null && (
+          <div className="absolute right-2 top-2 flex items-center gap-1 rounded-full border border-[#E8C77E]/40 bg-[#0B1220]/80 px-2 py-0.5 font-mono text-[10px] font-bold text-[#E8C77E] backdrop-blur-md">
+            <span>⭐</span>
+            <span>{manga.score}</span>
           </div>
         )}
 
-        {manga.synopsis && (
-          <p className="line-clamp-3 flex-1 text-xs leading-relaxed text-[#8CA0BE]">
-            {manga.synopsis}
-          </p>
-        )}
-
-        <button
-          onClick={() => onAdd(manga)}
-          disabled={isAdded}
-          className={`mt-auto w-full rounded-full border px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-all duration-300 ${
-            isAdded
-              ? "border-[#1E2C42] bg-transparent text-[#8CA0BE]"
-              : "border-[#E8C77E] bg-[#E8C77E] text-[#0B1220] hover:bg-[#F5F5F0] hover:border-[#F5F5F0] hover:shadow-[0_0_25px_rgba(232,199,126,0.35)] active:scale-95"
-          }`}
+        {/* MangaFire Reader quick button */}
+        <a
+          href={mangafireUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Read on MangaFire"
+          className="absolute right-2 bottom-2 flex h-7 w-7 items-center justify-center rounded-full border border-red-500/40 bg-[#0B1220]/85 text-xs text-red-300 opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all duration-200"
         >
-          {isAdded ? "✓ Added" : "+ Add to Library"}
-        </button>
+          🔥
+        </a>
+      </div>
+
+      {/* Body */}
+      <div className="flex flex-1 flex-col justify-between p-3.5">
+        <div>
+          <h3 className="line-clamp-1 font-[family-name:var(--font-display)] text-sm font-bold text-[#F5F5F0] transition-colors group-hover:text-[#E8C77E]">
+            {manga.title}
+          </h3>
+
+          {/* Genres */}
+          {manga.genres.length > 0 && (
+            <p className="mt-1 line-clamp-1 font-mono text-[10px] text-[#8CA0BE]">
+              {manga.genres.slice(0, 2).join(" · ")}
+            </p>
+          )}
+        </div>
+
+        {/* Add button */}
+        <div className="mt-3 pt-2 border-t border-[#1E2C42]/60">
+          <button
+            onClick={() => onAdd(manga)}
+            disabled={isAdded}
+            className={`w-full rounded-full py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider transition-all duration-200 ${
+              isAdded
+                ? "border border-[#1E2C42] bg-[#1E2C42]/30 text-[#8CA0BE]"
+                : "border border-[#E8C77E] bg-[#E8C77E] text-[#0B1220] hover:bg-[#F5F5F0] hover:border-[#F5F5F0] hover:shadow-[0_0_15px_rgba(232,199,126,0.3)] active:scale-95"
+            }`}
+          >
+            {isAdded ? "✓ In Library" : "+ Add"}
+          </button>
+        </div>
       </div>
     </div>
   );

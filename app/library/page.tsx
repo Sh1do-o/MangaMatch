@@ -2,16 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import AmbientBackground from "@/components/AmbientBackground";
-import PageHeader from "@/components/PageHeader";
 import ErrorBanner from "@/components/ErrorBanner";
 import EmptyState from "@/components/EmptyState";
 import Modal from "@/components/Modal";
+import ConfirmModal from "@/components/ConfirmModal";
+import Toast from "@/components/Toast";
 import CoverImage from "@/components/CoverImage";
 import Chip from "@/components/Chip";
-import TogglePill from "@/components/TogglePill";
 import MangaCardSkeletons from "@/components/MangaCardSkeletons";
-import ResultsHeader from "@/components/ResultsHeader";
 import {
   deleteCategory,
   deleteManga,
@@ -20,21 +20,30 @@ import {
 } from "@/lib/api-client";
 import { parseList } from "@/lib/manga";
 import type { Category, SavedManga } from "@/lib/types";
-import { cn, BUTTON_DANGER, BUTTON_PRIMARY, BUTTON_SECONDARY, LABEL } from "@/lib/ui";
+import {
+  cn,
+  BUTTON_DANGER,
+  BUTTON_PRIMARY,
+  BUTTON_SECONDARY,
+  LABEL,
+  statusBadge,
+} from "@/lib/ui";
 
 type SortOption =
   | "recently-added"
+  | "title-az"
+  | "highest-rated"
   | "year-newest"
   | "year-oldest"
-  | "highest-rated"
   | "latest-update";
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "recently-added", label: "Recently Added" },
+  { value: "title-az", label: "Title (A-Z)" },
+  { value: "highest-rated", label: "Highest Rated" },
   { value: "year-newest", label: "Year (Newest)" },
   { value: "year-oldest", label: "Year (Oldest)" },
-  { value: "highest-rated", label: "Highest Rated" },
-  { value: "latest-update", label: "Latest Update" },
+  { value: "latest-update", label: "Recently Updated" },
 ];
 
 export default function LibraryPage() {
@@ -42,32 +51,21 @@ export default function LibraryPage() {
   const [manga, setManga] = useState<SavedManga[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Filters
+  const [statusFilter, setStatusFilter] = useState<string>("All");
   const [genreFilter, setGenreFilter] = useState<string>("All");
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
-  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<SortOption>("recently-added");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+
+  // Modals & Feedback
   const [managingCategories, setManagingCategories] = useState(false);
   const [allCategoryObjs, setAllCategoryObjs] = useState<Category[]>([]);
-  const [deletingCategoryId, setDeletingCategoryId] = useState<number | null>(null);
-
-  async function handleDelete(e: React.MouseEvent, id: number) {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (!confirm("Remove this manga from your library?")) return;
-
-    setDeletingId(id);
-    try {
-      await deleteManga(id);
-      setManga((prev) => prev.filter((m) => m.id !== id));
-    } catch {
-      alert("Failed to delete. Try again.");
-    } finally {
-      setDeletingId(null);
-    }
-  }
+  const [deletingMangaItem, setDeletingMangaItem] = useState<{ id: number; title: string } | null>(null);
+  const [deletingCategoryItem, setDeletingCategoryItem] = useState<Category | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
 
   useEffect(() => {
     async function loadLibrary() {
@@ -87,14 +85,29 @@ export default function LibraryPage() {
     try {
       setAllCategoryObjs(await fetchCategories());
     } catch {
-      // non-critical, category chips on cards still work without this
+      // non-critical
     }
   }
 
-  async function handleDeleteCategory(id: number) {
-    if (!confirm("Delete this category? It will be removed from all manga.")) return;
+  async function confirmDeleteManga() {
+    if (!deletingMangaItem) return;
+    const { id, title } = deletingMangaItem;
+    setDeletingMangaItem(null);
 
-    setDeletingCategoryId(id);
+    try {
+      await deleteManga(id);
+      setManga((prev) => prev.filter((m) => m.id !== id));
+      setToastMessage({ text: `Removed "${title}" from your library`, type: "info" });
+    } catch {
+      setToastMessage({ text: "Failed to remove manga.", type: "error" });
+    }
+  }
+
+  async function confirmDeleteCategory() {
+    if (!deletingCategoryItem) return;
+    const { id, name } = deletingCategoryItem;
+    setDeletingCategoryItem(null);
+
     try {
       await deleteCategory(id);
       setAllCategoryObjs((prev) => prev.filter((c) => c.id !== id));
@@ -104,29 +117,56 @@ export default function LibraryPage() {
           categories: m.categories.filter((c) => c.id !== id),
         }))
       );
-      if (categoryFilter === allCategoryObjs.find((c) => c.id === id)?.name) {
+      if (categoryFilter === name) {
         setCategoryFilter("All");
       }
+      setToastMessage({ text: `Deleted category "${name}"`, type: "info" });
     } catch {
-      alert("Failed to delete category. Try again.");
-    } finally {
-      setDeletingCategoryId(null);
+      setToastMessage({ text: "Failed to delete category.", type: "error" });
     }
   }
 
-  const allGenres = Array.from(
-    new Set(manga.flatMap((m) => parseList(m.genres)))
-  ).sort();
+  // Aggregate genres with item counts
+  const genreCounts = manga.reduce<Record<string, number>>((acc, m) => {
+    parseList(m.genres).forEach((g) => {
+      acc[g] = (acc[g] || 0) + 1;
+    });
+    return acc;
+  }, {});
 
-  const allCategories = Array.from(
-    new Map(
-      manga.flatMap((m) => m.categories).map((c) => [c.id, c.name])
-    ).values()
-  ).sort();
+  const allGenres = Object.keys(genreCounts).sort();
+
+  // Aggregate categories with item counts
+  const categoryCounts = manga.reduce<Record<string, number>>((acc, m) => {
+    m.categories.forEach((c) => {
+      acc[c.name] = (acc[c.name] || 0) + 1;
+    });
+    return acc;
+  }, {});
+
+  const allCategories = Object.keys(categoryCounts).sort();
+
+  // Status counts
+  const statusCounts = {
+    All: manga.length,
+    reading: manga.filter((m) => m.readingStatus === "reading").length,
+    planning: manga.filter((m) => m.readingStatus === "planning").length,
+    completed: manga.filter((m) => m.readingStatus === "completed").length,
+  };
+
+  const hasActiveFilters =
+    statusFilter !== "All" ||
+    genreFilter !== "All" ||
+    categoryFilter !== "All" ||
+    searchQuery.trim() !== "";
 
   const filtered = manga
+    .filter((m) => {
+      if (statusFilter === "All") return true;
+      return m.readingStatus === statusFilter.toLowerCase();
+    })
     .filter((m) =>
-      genreFilter === "All" ? true : m.genres.split(",").includes(genreFilter)
+      genreFilter === "All" ? true : parseList(m.genres).includes(genreFilter)
     )
     .filter((m) =>
       categoryFilter === "All"
@@ -140,10 +180,11 @@ export default function LibraryPage() {
     )
     .sort((a, b) => {
       switch (sortBy) {
+        case "title-az":
+          return a.title.localeCompare(b.title);
         case "year-newest":
           return (b.publishedFrom ?? "").localeCompare(a.publishedFrom ?? "");
         case "year-oldest":
-          // Empty/unknown dates sort last regardless of direction
           if (!a.publishedFrom) return 1;
           if (!b.publishedFrom) return -1;
           return a.publishedFrom.localeCompare(b.publishedFrom);
@@ -164,318 +205,533 @@ export default function LibraryPage() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#0B1220] text-[#F5F5F0]">
       <AmbientBackground
-        primary="-top-32 left-1/3 h-[450px] w-[450px] blur-[130px]"
-        secondary="-bottom-40 right-1/4 h-[400px] w-[400px] blur-[100px]"
+        primary="-top-32 left-1/3 h-[500px] w-[500px] blur-[150px]"
+        secondary="-bottom-40 right-1/4 h-[450px] w-[450px] blur-[120px]"
       />
 
-      <div className="mx-auto max-w-6xl px-6 py-16">
-        <PageHeader
-          eyebrow="Library"
-          title="Your collection"
-          description={`${manga.length} manga saved`}
+      {toastMessage && (
+        <Toast
+          message={toastMessage.text}
+          type={toastMessage.type}
+          onClose={() => setToastMessage(null)}
         />
+      )}
 
-        {/* Search bar with icon and glass effect */}
-        <div className="animate-fade-in-up mb-8" style={{ animationDelay: "0.05s" }}>
-          <div className="relative">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search your library by title..."
-              className="w-full rounded-full border border-[#1E2C42] bg-[#0F1B2E]/80 px-5 py-3.5 pl-12 text-sm text-[#F5F5F0] placeholder:text-[#8CA0BE] outline-none backdrop-blur-sm transition-all duration-300 focus:border-[#E8C77E]/50 focus:shadow-[0_0_25px_rgba(232,199,126,0.15)]"
-            />
-            <svg
-              className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8CA0BE]"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              viewBox="0 0 24 24"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+      <ConfirmModal
+        isOpen={deletingMangaItem !== null}
+        title="Remove from Library?"
+        message={`Are you sure you want to remove "${deletingMangaItem?.title}" from your library?`}
+        confirmLabel="Remove Manga"
+        onConfirm={confirmDeleteManga}
+        onCancel={() => setDeletingMangaItem(null)}
+      />
+
+      <ConfirmModal
+        isOpen={deletingCategoryItem !== null}
+        title="Delete Category Tag?"
+        message={`Delete category "${deletingCategoryItem?.name}"? It will be untagged from all manga.`}
+        confirmLabel="Delete Tag"
+        onConfirm={confirmDeleteCategory}
+        onCancel={() => setDeletingCategoryItem(null)}
+      />
+
+      <div className="mx-auto max-w-[1400px] px-6 py-8">
+        {/* Top Header */}
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-[#1E2C42]/80 pb-5">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs uppercase tracking-[0.2em] text-[#E8C77E]">
+                Collection
+              </span>
+              <span className="text-[#1E2C42]">/</span>
+              <span className="font-mono text-xs uppercase text-[#8CA0BE]">
+                {manga.length} titles
+              </span>
+            </div>
+            <h1 className="font-[family-name:var(--font-display)] text-3xl font-bold tracking-tight text-[#F5F5F0]">
+              My Library
+            </h1>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Link
+              href="/search"
+              className={cn(BUTTON_PRIMARY, "px-5 py-2.5 text-xs font-bold")}
             >
-              <circle cx="11" cy="11" r="8" />
-              <path d="m21 21-4.3-4.3" />
-            </svg>
+              <span>+ Add Manga</span>
+            </Link>
+            <Link
+              href="/recommendations"
+              className={cn(BUTTON_SECONDARY, "px-5 py-2.5 text-xs")}
+            >
+              <span>AI Recommendations ✨</span>
+            </Link>
           </div>
         </div>
 
-        {/* Genre filter */}
-        {allGenres.length > 0 && (
-          <div className="animate-fade-in-up mb-3 flex flex-wrap gap-2" style={{ animationDelay: "0.1s" }}>
-            {["All", ...allGenres].map((genre) => (
-              <TogglePill
-                key={genre}
-                active={genreFilter === genre}
-                onClick={() => setGenreFilter(genre)}
-              >
-                {genre}
-              </TogglePill>
-            ))}
-          </div>
-        )}
-
-        {/* Category filter */}
-        {allCategories.length > 0 && (
-          <div className="animate-fade-in-up mb-10 flex flex-wrap gap-2" style={{ animationDelay: "0.15s" }}>
-            {["All", ...allCategories].map((cat) => (
-              <TogglePill
-                key={cat}
-                active={categoryFilter === cat}
-                onClick={() => setCategoryFilter(cat)}
-                accent="gold"
-              >
-                {cat}
-              </TogglePill>
-            ))}
-          </div>
-        )}
-
-        {loading && <MangaCardSkeletons className="mb-10" />}
-
-        {error && <ErrorBanner className="mb-8">{error}</ErrorBanner>}
-
-        {/* Empty state */}
-        {!loading && !error && manga.length === 0 && (
-          <EmptyState>
-            <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full border border-[#1E2C42] bg-[#0F1B2E]">
-              <svg className="h-8 w-8 text-[#E8C77E]/60" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
-              </svg>
-            </div>
-            <p className="mb-4 text-sm text-[#8CA0BE]">
-              Your library is empty. Search for manga and add what you're reading.
-            </p>
-            <a
-              href="/search"
-              className={cn(BUTTON_PRIMARY, "inline-block px-6 py-3")}
-            >
-              Go to Search
-            </a>
-          </EmptyState>
-        )}
-
-        {/* Control bar: sort, view toggle, manage categories */}
-        {!loading && !error && manga.length > 0 && (
-          <div className="animate-fade-in-up mb-6 flex flex-wrap items-center justify-between gap-3" style={{ animationDelay: "0.18s" }}>
-            <div className="flex items-center gap-2">
-              <span className={LABEL}>Sort:</span>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as SortOption)}
-                className="rounded-full border border-[#1E2C42] bg-[#0F1B2E] px-3.5 py-1.5 font-mono text-xs uppercase tracking-wide text-[#F5F5F0] outline-none transition-all duration-200 focus:border-[#E8C77E]/50"
-              >
-                {SORT_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {allCategoryObjs.length > 0 && (
-                <TogglePill
-                  active={false}
-                  onClick={() => setManagingCategories(true)}
+        {/* 2-Column Desktop Layout: Left Sidebar + Main Poster Grid */}
+        <div className="flex flex-col lg:flex-row gap-8 items-start">
+          {/* LEFT STICKY FILTER SIDEBAR */}
+          <aside className="w-full lg:w-64 lg:sticky lg:top-20 shrink-0 space-y-6 rounded-3xl border border-[#1E2C42] bg-[#0F1B2E]/85 p-5 shadow-xl backdrop-blur-xl">
+            {/* Search within library */}
+            <div>
+              <p className={`mb-2 ${LABEL}`}>Filter Title</p>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search collection..."
+                  className="w-full rounded-xl border border-[#1E2C42] bg-[#0B1220]/80 px-3.5 py-2.5 pl-9 text-xs text-[#F5F5F0] placeholder:text-[#8CA0BE] outline-none transition-all focus:border-[#E8C77E]/60"
+                />
+                <svg
+                  className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8CA0BE]"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
                 >
-                  Manage Categories
-                </TogglePill>
-              )}
-              <div className="flex overflow-hidden rounded-full border border-[#1E2C42]">
-                {(["grid", "list"] as const).map((mode) => (
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+                {searchQuery && (
                   <button
-                    key={mode}
-                    onClick={() => setViewMode(mode)}
-                    className={`px-3 py-1.5 font-mono text-xs uppercase tracking-wide capitalize transition-all duration-200 ${
-                      viewMode === mode
-                        ? "bg-[#F5F5F0] text-[#0B1220]"
-                        : "text-[#8CA0BE] hover:text-[#F5F5F0]"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#8CA0BE] hover:text-white"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Reading Status Filter */}
+            <div>
+              <p className={`mb-2 ${LABEL}`}>Reading Status</p>
+              <div className="flex flex-col gap-1">
+                {[
+                  { id: "All", label: "All Manga", count: statusCounts.All },
+                  { id: "reading", label: "Reading", count: statusCounts.reading, dot: "bg-blue-400" },
+                  { id: "planning", label: "Planning", count: statusCounts.planning, dot: "bg-amber-400" },
+                  { id: "completed", label: "Completed", count: statusCounts.completed, dot: "bg-emerald-400" },
+                ].map((s) => {
+                  const active = statusFilter.toLowerCase() === s.id.toLowerCase();
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => setStatusFilter(s.id)}
+                      className={`flex items-center justify-between rounded-xl px-3 py-2 text-xs font-mono transition-all ${
+                        active
+                          ? "bg-[#E8C77E] font-bold text-[#0B1220] shadow-[0_0_15px_rgba(232,199,126,0.3)]"
+                          : "text-[#8CA0BE] hover:bg-[#1E2C42]/50 hover:text-[#F5F5F0]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {s.dot && <span className={`h-2 w-2 rounded-full ${s.dot}`} />}
+                        <span>{s.label}</span>
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] ${
+                          active
+                            ? "bg-[#0B1220]/20 text-[#0B1220]"
+                            : "bg-[#0B1220]/60 text-[#8CA0BE]"
+                        }`}
+                      >
+                        {s.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Category Tags Filter */}
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <p className={LABEL}>Category Tags</p>
+                {allCategoryObjs.length > 0 && (
+                  <button
+                    onClick={() => setManagingCategories(true)}
+                    className="font-mono text-[10px] text-[#E8C77E] hover:underline"
+                  >
+                    ⚙️ Edit
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-col gap-1 max-h-48 overflow-y-auto pr-1">
+                <button
+                  onClick={() => setCategoryFilter("All")}
+                  className={`flex items-center justify-between rounded-xl px-3 py-1.5 text-xs font-mono transition-all ${
+                    categoryFilter === "All"
+                      ? "bg-[#E8C77E] font-bold text-[#0B1220]"
+                      : "text-[#8CA0BE] hover:bg-[#1E2C42]/50 hover:text-[#F5F5F0]"
+                  }`}
+                >
+                  <span>All Tags</span>
+                  <span className="text-[10px] opacity-70">{manga.length}</span>
+                </button>
+                {allCategories.map((cat) => {
+                  const active = categoryFilter === cat;
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => setCategoryFilter(cat)}
+                      className={`flex items-center justify-between rounded-xl px-3 py-1.5 text-xs font-mono transition-all ${
+                        active
+                          ? "bg-blue-500 font-bold text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]"
+                          : "text-[#8CA0BE] hover:bg-[#1E2C42]/50 hover:text-blue-300"
+                      }`}
+                    >
+                      <span className="truncate">🏷️ {cat}</span>
+                      <span className="text-[10px] opacity-70">
+                        {categoryCounts[cat]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Genres Filter (Scrollable Vertical) */}
+            {allGenres.length > 0 && (
+              <div>
+                <p className={`mb-2 ${LABEL}`}>Genres</p>
+                <div className="flex flex-col gap-1 max-h-56 overflow-y-auto pr-1">
+                  <button
+                    onClick={() => setGenreFilter("All")}
+                    className={`flex items-center justify-between rounded-xl px-3 py-1.5 text-xs font-mono transition-all ${
+                      genreFilter === "All"
+                        ? "bg-[#E8C77E] font-bold text-[#0B1220]"
+                        : "text-[#8CA0BE] hover:bg-[#1E2C42]/50 hover:text-[#F5F5F0]"
                     }`}
                   >
-                    {mode}
+                    <span>All Genres</span>
+                    <span className="text-[10px] opacity-70">{manga.length}</span>
                   </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Results grid/list */}
-        {!loading && !error && manga.length > 0 && (
-          <>
-            <ResultsHeader style={{ animationDelay: "0.2s" }}>
-              {filtered.length} manga
-            </ResultsHeader>
-
-            {viewMode === "grid" ? (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {filtered.map((m, i) => (
-                  <div
-                    key={m.id}
-                    onClick={() => router.push(`/library/${m.id}`)}
-                    style={{ animationDelay: `${Math.min(i, 10) * 0.05}s` }}
-                    className="animate-fade-in-up group flex cursor-pointer flex-col overflow-hidden rounded-xl border-2 border-[#1E2C42] bg-[#0F1B2E] shadow-lg transition-all duration-300 hover:-translate-y-1 hover:border-[#E8C77E]/40 hover:shadow-[0_10px_40px_rgba(232,199,126,0.15)]"
-                  >
-                    {/* Cover */}
-                    <div className="relative aspect-[2/3] w-full overflow-hidden bg-[#0B1220]">
-                      <CoverImage
-                        src={m.coverUrl}
-                        alt={m.title}
-                        imgClassName="transition-transform duration-500 group-hover:scale-105"
-                      />
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0B1220]/80 via-transparent to-transparent" />
-                      {/* Shimmer sweep on hover */}
-                      <div className="animate-shimmer absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
-
-                      {/* Reading status badge */}
-                      <span className="absolute right-2 top-2 rounded-full border border-[#E8C77E]/40 bg-[#0B1220]/90 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide text-[#E8C77E] backdrop-blur-sm">
-                        {m.readingStatus}
-                      </span>
-
-                      {/* Rating badge */}
-                      {m.rating !== null && (
-                        <span className="absolute bottom-2 right-2 rounded-full border border-[#E8C77E]/40 bg-[#0B1220]/90 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide text-[#E8C77E] backdrop-blur-sm">
-                          ★ {m.rating}/10
-                        </span>
-                      )}
-
-                      {/* Delete button */}
+                  {allGenres.map((genre) => {
+                    const active = genreFilter === genre;
+                    return (
                       <button
-                        onClick={(e) => handleDelete(e, m.id)}
-                        disabled={deletingId === m.id}
-                        className={cn(
-                          BUTTON_DANGER,
-                          "absolute left-2 top-2 bg-[#0B1220]/90 px-2.5 py-1 backdrop-blur-sm"
-                        )}
+                        key={genre}
+                        onClick={() => setGenreFilter(genre)}
+                        className={`flex items-center justify-between rounded-xl px-3 py-1.5 text-xs font-mono transition-all ${
+                          active
+                            ? "bg-[#E8C77E]/20 font-bold text-[#E8C77E] border border-[#E8C77E]/40"
+                            : "text-[#8CA0BE] hover:bg-[#1E2C42]/50 hover:text-[#F5F5F0]"
+                        }`}
                       >
-                        {deletingId === m.id ? "..." : "✕"}
+                        <span className="truncate">{genre}</span>
+                        <span className="text-[10px] opacity-70">
+                          {genreCounts[genre]}
+                        </span>
                       </button>
-                    </div>
-
-                    {/* Info */}
-                    <div className="flex flex-1 flex-col gap-3 p-4">
-                      <h3 className="font-[family-name:var(--font-display)] text-base font-semibold leading-snug">
-                        {m.title}
-                      </h3>
-
-                      {/* Genres */}
-                      {m.genres && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {parseList(m.genres)
-                            .slice(0, 3)
-                            .map((genre) => (
-                              <Chip key={genre}>{genre}</Chip>
-                            ))}
-                        </div>
-                      )}
-
-                      {/* Categories */}
-                      {m.categories.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {m.categories.map((cat) => (
-                            <Chip key={cat.id} accent="light">
-                              {cat.name}
-                            </Chip>
-                          ))}
-                        </div>
-                      )}
-
-                      {m.siteUrl && (
-                        <a
-                          href={m.siteUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="mt-auto inline-block font-mono text-[10px] uppercase tracking-wide text-[#E8C77E] transition-all duration-200 hover:underline hover:underline-offset-4"
-                        >
-                          View Full Details ↗
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {filtered.map((m, i) => (
-                  <div
-                    key={m.id}
-                    onClick={() => router.push(`/library/${m.id}`)}
-                    style={{ animationDelay: `${Math.min(i, 12) * 0.03}s` }}
-                    className="animate-fade-in-up group flex cursor-pointer items-center gap-4 rounded-xl border-2 border-[#1E2C42] bg-[#0F1B2E] p-3 transition-all duration-200 hover:border-[#E8C77E]/40"
-                  >
-                    <div className="relative aspect-[2/3] w-12 flex-shrink-0 self-start overflow-hidden rounded-md bg-[#0B1220]">
-                      <CoverImage
-                        src={m.coverUrl}
-                        alt={m.title}
-                        fallback={
-                          <div className="flex h-full items-center justify-center text-[8px] text-[#8CA0BE]">
-                            N/A
-                          </div>
-                        }
-                      />
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <h3 className="truncate font-[family-name:var(--font-display)] text-sm font-semibold">
-                        {m.title}
-                      </h3>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-wide text-[#8CA0BE]">
-                        <span>{m.readingStatus}</span>
-                        {m.rating !== null && (
-                          <span className="text-[#E8C77E]">★ {m.rating}/10</span>
-                        )}
-                        {m.categories.slice(0, 2).map((cat) => (
-                          <span key={cat.id}>{cat.name}</span>
-                        ))}
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={(e) => handleDelete(e, m.id)}
-                      disabled={deletingId === m.id}
-                      className={cn(BUTTON_DANGER, "flex-shrink-0 px-2.5 py-1")}
-                    >
-                      {deletingId === m.id ? "..." : "✕"}
-                    </button>
-                  </div>
-                ))}
+                    );
+                  })}
+                </div>
               </div>
             )}
-          </>
-        )}
+
+            {/* Reset Filters */}
+            {hasActiveFilters && (
+              <button
+                onClick={() => {
+                  setStatusFilter("All");
+                  setGenreFilter("All");
+                  setCategoryFilter("All");
+                  setSearchQuery("");
+                }}
+                className="w-full rounded-xl border border-[#1E2C42] bg-[#0B1220]/60 py-2 font-mono text-xs uppercase tracking-wider text-[#E8C77E] hover:bg-[#E8C77E] hover:text-[#0B1220] transition-all"
+              >
+                Reset All Filters
+              </button>
+            )}
+          </aside>
+
+          {/* MAIN POSTER GRID / LIST AREA */}
+          <main className="flex-1 w-full min-w-0">
+            {/* Controls bar: Results count, Sort by, Grid/List view */}
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[#1E2C42]/80 bg-[#0F1B2E]/60 p-3.5 backdrop-blur-md">
+              <div className="flex items-center gap-2 font-mono text-xs text-[#8CA0BE]">
+                <span className="font-semibold text-[#F5F5F0]">{filtered.length}</span>
+                <span>matching titles</span>
+                {hasActiveFilters && (
+                  <span className="text-[10px] text-[#E8C77E]">(filtered)</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 font-mono text-xs">
+                  <span className={LABEL}>Sort:</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as SortOption)}
+                    className="rounded-xl border border-[#1E2C42] bg-[#0B1220] px-3 py-1.5 text-xs text-[#F5F5F0] outline-none focus:border-[#E8C77E]/50"
+                  >
+                    {SORT_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value} className="bg-[#0F1B2E]">
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Grid / List Switcher */}
+                <div className="flex rounded-xl border border-[#1E2C42] bg-[#0B1220] p-0.5">
+                  <button
+                    onClick={() => setViewMode("grid")}
+                    title="Poster Grid"
+                    className={`rounded-lg px-2.5 py-1.5 text-xs transition-all ${
+                      viewMode === "grid"
+                        ? "bg-[#E8C77E] text-[#0B1220]"
+                        : "text-[#8CA0BE] hover:text-white"
+                    }`}
+                  >
+                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => setViewMode("list")}
+                    title="List View"
+                    className={`rounded-lg px-2.5 py-1.5 text-xs transition-all ${
+                      viewMode === "list"
+                        ? "bg-[#E8C77E] text-[#0B1220]"
+                        : "text-[#8CA0BE] hover:text-white"
+                    }`}
+                  >
+                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {loading && <MangaCardSkeletons count={10} />}
+
+            {error && <ErrorBanner className="mb-8">{error}</ErrorBanner>}
+
+            {/* Empty Library */}
+            {!loading && !error && manga.length === 0 && (
+              <EmptyState>
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-[#E8C77E]/30 bg-[#E8C77E]/10 text-2xl">
+                  📚
+                </div>
+                <h3 className="mb-2 font-[family-name:var(--font-display)] text-xl font-bold text-[#F5F5F0]">
+                  Your Library is Empty
+                </h3>
+                <p className="mb-6 max-w-sm text-sm text-[#8CA0BE]">
+                  Add manga from search or use the AI recommender to start tracking what you read.
+                </p>
+                <div className="flex justify-center gap-3">
+                  <Link href="/search" className={cn(BUTTON_PRIMARY, "px-6 py-2.5 text-xs")}>
+                    Search AniList
+                  </Link>
+                  <Link href="/recommendations" className={cn(BUTTON_SECONDARY, "px-6 py-2.5 text-xs")}>
+                    AI Recommendations
+                  </Link>
+                </div>
+              </EmptyState>
+            )}
+
+            {/* Filtered Empty State */}
+            {!loading && !error && manga.length > 0 && filtered.length === 0 && (
+              <EmptyState>
+                <p className="text-sm text-[#8CA0BE] mb-4">
+                  No manga match your active filter selections.
+                </p>
+                <button
+                  onClick={() => {
+                    setStatusFilter("All");
+                    setGenreFilter("All");
+                    setCategoryFilter("All");
+                    setSearchQuery("");
+                  }}
+                  className={cn(BUTTON_SECONDARY, "px-5 py-2 text-xs")}
+                >
+                  Clear Filters
+                </button>
+              </EmptyState>
+            )}
+
+            {/* High-Density Poster Grid (4-5 columns) */}
+            {!loading && !error && filtered.length > 0 && viewMode === "grid" && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {filtered.map((m, i) => {
+                  const statusInfo = statusBadge(m.readingStatus);
+                  const genres = parseList(m.genres);
+
+                  return (
+                    <div
+                      key={m.id}
+                      onClick={() => router.push(`/library/${m.id}`)}
+                      style={{ animationDelay: `${Math.min(i, 12) * 0.04}s` }}
+                      className="animate-fade-in-up group relative flex flex-col overflow-hidden rounded-2xl border border-[#1E2C42] bg-[#0F1B2E]/90 shadow-lg backdrop-blur-md transition-all duration-300 hover:-translate-y-1.5 hover:border-[#E8C77E]/60 hover:shadow-[0_15px_35px_rgba(232,199,126,0.18)] cursor-pointer"
+                    >
+                      {/* Vertical 2:3 Cover Poster */}
+                      <div className="relative aspect-[2/3] w-full overflow-hidden bg-[#0B1220]">
+                        <CoverImage
+                          src={m.coverUrl}
+                          alt={m.title}
+                          imgClassName="transition-transform duration-500 group-hover:scale-105"
+                        />
+                        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0F1B2E] via-transparent to-black/40" />
+
+                        {/* Status Chip (Top-Left) */}
+                        <div className="absolute left-2 top-2">
+                          <span
+                            className={`rounded-full border px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider backdrop-blur-md ${statusInfo.className}`}
+                          >
+                            {statusInfo.label}
+                          </span>
+                        </div>
+
+                        {/* Rating (Top-Right) */}
+                        {m.rating !== null && (
+                          <div className="absolute right-2 top-2 flex items-center gap-1 rounded-full border border-[#E8C77E]/40 bg-[#0B1220]/80 px-2 py-0.5 font-mono text-[10px] font-bold text-[#E8C77E] backdrop-blur-md">
+                            <span>⭐</span>
+                            <span>{m.rating}</span>
+                          </div>
+                        )}
+
+                        {/* Quick Delete button on hover */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeletingMangaItem({ id: m.id, title: m.title });
+                          }}
+                          title="Remove from library"
+                          className="absolute right-2 bottom-2 flex h-6 w-6 items-center justify-center rounded-full border border-red-500/40 bg-[#0B1220]/80 text-[10px] text-red-400 opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-red-500 hover:text-white"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      {/* Poster Card Details */}
+                      <div className="flex flex-1 flex-col justify-between p-3.5">
+                        <div>
+                          <h3 className="line-clamp-1 font-[family-name:var(--font-display)] text-sm font-bold text-[#F5F5F0] transition-colors group-hover:text-[#E8C77E]">
+                            {m.title}
+                          </h3>
+
+                          {/* Genres */}
+                          {genres.length > 0 && (
+                            <p className="mt-1 line-clamp-1 font-mono text-[10px] text-[#8CA0BE]">
+                              {genres.slice(0, 2).join(" · ")}
+                            </p>
+                          )}
+
+                          {/* Custom Category Tags */}
+                          {m.categories.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {m.categories.slice(0, 2).map((cat) => (
+                                <span
+                                  key={cat.id}
+                                  className="rounded-full border border-blue-400/20 bg-blue-500/10 px-2 py-0.2 font-mono text-[8px] uppercase text-blue-300"
+                                >
+                                  #{cat.name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Compact List View */}
+            {!loading && !error && filtered.length > 0 && viewMode === "list" && (
+              <div className="flex flex-col gap-2">
+                {filtered.map((m, i) => {
+                  const statusInfo = statusBadge(m.readingStatus);
+
+                  return (
+                    <div
+                      key={m.id}
+                      onClick={() => router.push(`/library/${m.id}`)}
+                      style={{ animationDelay: `${Math.min(i, 12) * 0.03}s` }}
+                      className="animate-fade-in-up group flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-[#1E2C42] bg-[#0F1B2E]/70 p-3 shadow-md backdrop-blur-md transition-all hover:border-[#E8C77E]/50 hover:bg-[#0F1B2E]"
+                    >
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <div className="relative h-14 w-10 shrink-0 overflow-hidden rounded-lg bg-[#0B1220]">
+                          <CoverImage src={m.coverUrl} alt={m.title} />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="truncate font-[family-name:var(--font-display)] text-sm font-bold text-[#F5F5F0] group-hover:text-[#E8C77E]">
+                            {m.title}
+                          </h3>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs">
+                            <span
+                              className={`rounded-full border px-2 py-0.2 font-mono text-[8px] uppercase ${statusInfo.className}`}
+                            >
+                              {statusInfo.label}
+                            </span>
+                            {m.rating !== null && (
+                              <span className="font-mono text-[10px] font-bold text-[#E8C77E]">
+                                ⭐ {m.rating}/10
+                              </span>
+                            )}
+                            {m.categories.map((c) => (
+                              <span key={c.id} className="font-mono text-[9px] text-blue-300">
+                                #{c.name}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeletingMangaItem({ id: m.id, title: m.title });
+                        }}
+                        className="rounded-full p-2 text-[#8CA0BE] hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </main>
+        </div>
       </div>
 
-      {/* Manage categories modal */}
+      {/* Manage Categories Modal */}
       {managingCategories && (
-        <Modal title="Manage Categories">
-          <div className="mt-2">
-            <div className="mb-6 flex max-h-64 flex-col gap-2 overflow-y-auto">
+        <Modal title="Manage Custom Category Tags">
+          <div className="mt-4">
+            <div className="mb-6 flex max-h-60 flex-col gap-2 overflow-y-auto pr-1">
               {allCategoryObjs.map((cat) => (
                 <div
                   key={cat.id}
-                  className="flex items-center justify-between rounded-lg border border-[#1E2C42] px-3 py-2"
+                  className="flex items-center justify-between rounded-xl border border-[#1E2C42] bg-[#0B1220]/60 px-3.5 py-2.5"
                 >
-                  <span className="text-sm text-[#F5F5F0]">{cat.name}</span>
+                  <span className="font-medium text-sm text-[#F5F5F0] flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-[#E8C77E]" />
+                    {cat.name}
+                  </span>
                   <button
-                    onClick={() => handleDeleteCategory(cat.id)}
-                    disabled={deletingCategoryId === cat.id}
-                    className={cn(BUTTON_DANGER, "px-2.5 py-1")}
+                    onClick={() => setDeletingCategoryItem(cat)}
+                    className={cn(BUTTON_DANGER, "px-3 py-1")}
                   >
-                    {deletingCategoryId === cat.id ? "..." : "Delete"}
+                    Delete
                   </button>
                 </div>
               ))}
               {allCategoryObjs.length === 0 && (
-                <p className="text-sm text-[#8CA0BE]">No categories left.</p>
+                <p className="text-sm text-[#8CA0BE] text-center py-4">No categories created yet.</p>
               )}
             </div>
             <button
               onClick={() => setManagingCategories(false)}
-              className={cn(BUTTON_SECONDARY, "w-full px-4 py-2.5")}
+              className={cn(BUTTON_SECONDARY, "w-full py-2.5 text-xs")}
             >
-              Close
+              Done
             </button>
           </div>
         </Modal>
